@@ -10,7 +10,7 @@ const HOST = process.env.HOST || "127.0.0.1";
 const BRAIN_SERVICE_URL = process.env.BRAIN_SERVICE_URL || "http://127.0.0.1:8000";
 const ROOT_DIR = process.cwd();
 
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "15mb" }));
 app.use(express.static(ROOT_DIR));
 
 app.get("/api/aadhaar/status", async (_req, res) => {
@@ -105,6 +105,37 @@ app.post("/api/aadhaar/verify", async (req, res) => {
   } catch (error) {
     console.error("Verify proxy error:", error);
     res.status(502).json({ error: "Could not reach Aadhaar verification service." });
+  }
+});
+
+app.post("/api/bills/scan", async (req, res) => {
+  const fileName = safeString(req.body?.fileName);
+  const mimeType = safeString(req.body?.mimeType);
+  const imageBase64 = safeString(req.body?.imageBase64);
+
+  if (!fileName || !mimeType || !imageBase64) {
+    res.status(400).json({ error: "Bill upload is incomplete. Add a file name, mime type, and image payload." });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${BRAIN_SERVICE_URL}/bills/scan`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        file_name: fileName,
+        mime_type: mimeType,
+        image_base64: imageBase64
+      })
+    });
+
+    const payload = await readJsonResponse(response);
+    res.status(response.status).json(payload);
+  } catch (error) {
+    console.error("Bill scan proxy error:", error);
+    res.status(502).json({ error: "Could not reach the bill scanning service." });
   }
 });
 
