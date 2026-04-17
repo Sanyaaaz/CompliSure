@@ -1,10 +1,16 @@
-import { COMPLIANCE_DB, DEFAULT_CA_ROWS, NOTICE_PATTERNS, PENALTY_DATA, SAMPLE_NOTICE } from "./data.js";
+import { COMPLIANCE_DB, PENALTY_DATA, SAMPLE_NOTICE } from "./data.js";
 import { renderDashboardPage } from "./components/dashboardPage.js";
 import { renderLandingPage } from "./components/landingPage.js";
 
 const root = document.getElementById("app");
 // Temporary switch to let the team continue testing while Aadhaar verification is paused.
 const TEMPORARY_DETAILS_ONLY_LOGIN = true;
+
+function createFlags() {
+  return {
+    detailsOnlyLogin: TEMPORARY_DETAILS_ONLY_LOGIN
+  };
+}
 
 function createDefaultAuthState() {
   return {
@@ -25,12 +31,76 @@ function createDefaultAuthState() {
   };
 }
 
+function createDefaultReminderState(session = null, saved = {}) {
+  return {
+    ownerName: saved.ownerName || session?.fullName || "",
+    companyName: saved.companyName || session?.companyName || "",
+    ownerEmail: saved.ownerEmail || "",
+    caName: saved.caName || "Linked CA",
+    caEmail: saved.caEmail || "",
+    obligationName: saved.obligationName || "GSTR-3B - Monthly Return",
+    dueDate: saved.dueDate || "",
+    trigger: saved.trigger || "7_days_before"
+  };
+}
+
+function createDefaultBillWorkspace(saved = {}) {
+  return {
+    documents: Array.isArray(saved.documents) ? saved.documents : [],
+    transactions: Array.isArray(saved.transactions) ? saved.transactions : [],
+    selectedFileName: "",
+    scanMessage: "",
+    scanError: false,
+    scanLoading: false,
+    hydrated: false,
+    hydrating: false
+  };
+}
+
+function createDefaultNoticeWorkspace(saved = {}) {
+  return {
+    sourceText: saved.sourceText || "",
+    sourceLabel: saved.sourceLabel || "",
+    selectedFileName: "",
+    interpretation: saved.interpretation || null,
+    chatHistory: Array.isArray(saved.chatHistory) ? saved.chatHistory : [],
+    questionInput: "",
+    noticeMessage: "",
+    noticeError: false,
+    loading: false,
+    chatLoading: false
+  };
+}
+
+function createDefaultCaPortalState() {
+  return {
+    message: "",
+    error: false,
+    saving: false,
+    hydrating: false,
+    hydrated: false,
+    form: {
+      client: "",
+      filing: "",
+      dept: "GST",
+      dueDate: "",
+      status: "pending"
+    }
+  };
+}
+
 const savedSession = readSession();
 
 const state = {
+  flags: createFlags(),
   view: savedSession?.verified ? "dashboard" : "landing",
   auth: savedSession ? { ...createDefaultAuthState(), ...savedSession, otpSent: false, otpInput: "", referenceId: "", message: "", messageType: "info", loading: false, loadingStep: "" } : createDefaultAuthState(),
-  caRows: DEFAULT_CA_ROWS.map((row) => ({ ...row }))
+  activeToolTab: "onboard",
+  caRows: [],
+  caPortal: createDefaultCaPortalState(),
+  reminders: createDefaultReminderState(savedSession, readReminderProfile()),
+  billWorkspace: createDefaultBillWorkspace(readBillWorkspace()),
+  noticeWorkspace: createDefaultNoticeWorkspace(readNoticeWorkspace())
 };
 
 renderApp();
@@ -64,6 +134,7 @@ function bindSignupEvents() {
   const otpInput = document.getElementById("otp-input");
   const founderInput = document.getElementById("founder-name");
   const companyInput = document.getElementById("company-name");
+  const directDashboardButton = document.getElementById("direct-dashboard-btn");
 
   [founderInput, companyInput].forEach((input) => {
     input?.addEventListener("input", syncSignupFormToState);
@@ -84,6 +155,7 @@ function bindSignupEvents() {
 
   sendOtpButton?.addEventListener("click", handleSendOtp);
   verifyOtpButton?.addEventListener("click", handleVerifyOtp);
+  directDashboardButton?.addEventListener("click", handleDirectDashboardAccess);
   editSignupButton?.addEventListener("click", () => {
     syncSignupFormToState();
     state.auth.otpSent = false;
@@ -129,7 +201,7 @@ async function handleSendOtpAsync() {
     return;
   }
 
-  if (state.auth.aadhaarDigits.length !== 12) {
+  if (!state.flags.detailsOnlyLogin && state.auth.aadhaarDigits.length !== 12) {
     state.auth.message = "Enter a valid 12-digit Aadhaar number.";
     state.auth.messageType = "error";
     renderApp();
@@ -146,22 +218,7 @@ async function handleSendOtpAsync() {
   }
 
   if (state.flags.detailsOnlyLogin) {
-    state.auth.verified = true;
-    state.auth.otpSent = false;
-    state.auth.referenceId = "";
-    state.auth.verificationProfile = {
-      name: state.auth.fullName,
-      dateOfBirth: "",
-      gender: "",
-      fullAddress: "",
-      referenceId: "details-only-bypass"
-    };
-    state.auth.messageType = "info";
-    state.auth.message = "";
-    state.view = "dashboard";
-    persistSession();
-    renderApp();
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    openDashboardWithoutOtp();
     return;
   }
 
@@ -196,6 +253,40 @@ async function handleSendOtpAsync() {
     renderApp();
     scrollToId("signup");
   }
+}
+
+function handleDirectDashboardAccess() {
+  syncSignupFormToState();
+
+  if (!state.auth.fullName || !state.auth.companyName) {
+    state.auth.message = "Enter founder and company details before continuing.";
+    state.auth.messageType = "error";
+    renderApp();
+    scrollToId("signup");
+    return;
+  }
+
+  openDashboardWithoutOtp();
+}
+
+function openDashboardWithoutOtp() {
+  state.auth.verified = true;
+  state.auth.otpSent = false;
+  state.auth.referenceId = "";
+  state.auth.otpInput = "";
+  state.auth.verificationProfile = {
+    name: state.auth.fullName,
+    dateOfBirth: "",
+    gender: "",
+    fullAddress: "",
+    referenceId: "details-only-bypass"
+  };
+  state.auth.messageType = "info";
+  state.auth.message = "";
+  state.view = "dashboard";
+  persistSession();
+  renderApp();
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function handleVerifyOtp() {
@@ -270,11 +361,19 @@ function bindDashboardEvents() {
     clearSession();
     state.view = "landing";
     state.auth = createDefaultAuthState();
-    state.caRows = DEFAULT_CA_ROWS.map((row) => ({ ...row }));
+    state.flags = createFlags();
+    state.activeToolTab = "onboard";
+    state.caRows = [];
+    state.caPortal = createDefaultCaPortalState();
     state.reminders = createDefaultReminderState(null, readReminderProfile());
+    state.billWorkspace = createDefaultBillWorkspace(readBillWorkspace());
+    state.noticeWorkspace = createDefaultNoticeWorkspace(readNoticeWorkspace());
     renderApp();
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
+
+  hydrateBillWorkspaceFromServer();
+  hydrateCaRowsFromServer();
 }
 
 function bindLiveToolEvents() {
@@ -296,13 +395,31 @@ function bindLiveToolEvents() {
 
   document.getElementById("generate-calendar-btn")?.addEventListener("click", generateCalendar);
   document.getElementById("calculate-penalty-btn")?.addEventListener("click", calculatePenalty);
+  document.getElementById("notice-upload-input")?.addEventListener("change", handleNoticeFileSelection);
   document.getElementById("load-sample-notice-btn")?.addEventListener("click", () => {
     const textarea = document.getElementById("notice-text");
     if (textarea) {
       textarea.value = SAMPLE_NOTICE;
     }
+    state.activeToolTab = "notice";
+    state.noticeWorkspace.sourceText = SAMPLE_NOTICE;
+    state.noticeWorkspace.selectedFileName = "";
+    state.noticeWorkspace.sourceLabel = "Pasted notice text";
+    state.noticeWorkspace.noticeMessage = "Sample notice loaded. Click interpret to analyze it with Groq.";
+    state.noticeWorkspace.noticeError = false;
+    renderApp();
   });
   document.getElementById("interpret-notice-btn")?.addEventListener("click", interpretNotice);
+  document.getElementById("notice-chat-input")?.addEventListener("input", syncNoticeFormToState);
+  document.getElementById("send-notice-chat-btn")?.addEventListener("click", handleNoticeChat);
+  document.getElementById("bill-upload-input")?.addEventListener("change", handleBillFileSelection);
+  document.getElementById("scan-bill-btn")?.addEventListener("click", handleBillScan);
+  document.getElementById("ca-client-input")?.addEventListener("input", syncCaFormToState);
+  document.getElementById("ca-filing-input")?.addEventListener("input", syncCaFormToState);
+  document.getElementById("ca-dept-input")?.addEventListener("input", syncCaFormToState);
+  document.getElementById("ca-due-date-input")?.addEventListener("input", syncCaFormToState);
+  document.getElementById("add-ca-row-btn")?.addEventListener("click", handleAddCaRow);
+  document.getElementById("refresh-ca-rows-btn")?.addEventListener("click", () => hydrateCaRowsFromServer(true));
 
   document.querySelectorAll("[data-wa-action]").forEach((button) => {
     button.addEventListener("click", () => handleWhatsappAction(button.dataset.waAction));
@@ -310,23 +427,15 @@ function bindLiveToolEvents() {
 
   document.querySelectorAll(".ca-status-sel").forEach((select) => {
     select.addEventListener("change", () => {
-      const rowIndex = Number(select.dataset.rowIndex);
-      state.caRows[rowIndex].status = select.value;
-      applyStatusStyle(select, select.value);
-      updatePendingCount();
+      handleCaStatusChange(select);
     });
   });
 
   document.getElementById("mark-all-filed-btn")?.addEventListener("click", () => {
-    document.querySelectorAll(".ca-status-sel").forEach((select) => {
-      select.value = "filed";
-      const rowIndex = Number(select.dataset.rowIndex);
-      state.caRows[rowIndex].status = "filed";
-      applyStatusStyle(select, "filed");
-    });
-    updatePendingCount();
+    handleMarkAllFiled();
   });
 
+  bindReminderEvents();
   applyActiveToolTab();
 }
 
@@ -523,52 +632,149 @@ function calculatePenalty() {
   `;
 }
 
-function interpretNotice() {
-  const textarea = document.getElementById("notice-text");
-  const result = document.getElementById("notice-result");
-  const output = document.getElementById("notice-output");
-  const placeholder = result?.querySelector(".notice-placeholder");
-  const text = textarea?.value.trim() || "";
+function syncNoticeFormToState() {
+  const noticeTextField = document.getElementById("notice-text");
+  const noticeChatField = document.getElementById("notice-chat-input");
 
-  if (!text || !result || !output || !placeholder) {
-    window.alert("Please paste a notice to interpret.");
+  state.noticeWorkspace.sourceText = noticeTextField ? noticeTextField.value : state.noticeWorkspace.sourceText;
+  state.noticeWorkspace.questionInput = noticeChatField ? noticeChatField.value : state.noticeWorkspace.questionInput;
+}
+
+function handleNoticeFileSelection(event) {
+  const file = event.target.files?.[0];
+  state.activeToolTab = "notice";
+  state.noticeWorkspace.selectedFileName = file ? file.name : "";
+  state.noticeWorkspace.sourceLabel = file ? file.name : state.noticeWorkspace.sourceLabel;
+  state.noticeWorkspace.noticeMessage = file ? `Ready to analyze ${file.name}.` : "";
+  state.noticeWorkspace.noticeError = false;
+  document.querySelector("#tab-notice .bill-dropzone-sub")?.replaceChildren(state.noticeWorkspace.selectedFileName || state.noticeWorkspace.sourceLabel || "No file selected yet");
+}
+
+async function interpretNotice() {
+  syncNoticeFormToState();
+  const input = document.getElementById("notice-upload-input");
+  const file = input?.files?.[0];
+  const text = (state.noticeWorkspace.sourceText || "").trim();
+  state.activeToolTab = "notice";
+
+  if (!text && !file) {
+    state.noticeWorkspace.noticeMessage = "Paste notice text or upload a PDF/image notice before interpreting.";
+    state.noticeWorkspace.noticeError = true;
+    renderApp();
     return;
   }
 
-  placeholder.style.display = "none";
-  output.style.display = "block";
-  output.innerHTML = `<div style="display:flex;justify-content:center;padding:2rem"><div class="loading-dots"><span></span><span></span><span></span></div></div>`;
+  if (file && file.size > 10 * 1024 * 1024) {
+    state.noticeWorkspace.noticeMessage = "Use a notice file smaller than 10 MB for reliable interpretation.";
+    state.noticeWorkspace.noticeError = true;
+    renderApp();
+    return;
+  }
 
-  window.setTimeout(() => {
-    const match = NOTICE_PATTERNS.find((pattern) => pattern.pattern.test(text));
-    const penaltyMatches = text.match(/₹[\d,]+/g);
-    const penalty = penaltyMatches ? penaltyMatches[0] : "Amount not specified";
-    const responseDays = text.match(/(\d+)\s*days/i);
-    const responseWindow = responseDays ? `${responseDays[1]} days` : "As specified";
+  state.noticeWorkspace.loading = true;
+  state.noticeWorkspace.noticeError = false;
+  state.noticeWorkspace.noticeMessage = file
+    ? `Analyzing ${file.name} with Groq...`
+    : "Analyzing pasted notice text with Groq...";
+  renderApp();
 
-    if (!match) {
-      output.innerHTML = `
-        <div class="ni-row"><div class="ni-label">Notice type</div><div class="ni-val">Regulatory / Compliance notice</div></div>
-        <div class="ni-row"><div class="ni-label">Amount mentioned</div><div class="ni-val urgent">${penalty}</div></div>
-        <div class="ni-row"><div class="ni-label">Response deadline</div><div class="ni-val urgent">${responseWindow}</div></div>
-        <div class="ni-row"><div class="ni-label">Recommended action</div><div class="ni-val">Consult your CA or CS immediately with this notice</div></div>
-        <div class="ni-row"><div class="ni-label">Urgency</div><div class="ni-val urgent">HIGH — Do not ignore</div></div>
-        <div style="margin-top:1rem;padding:10px 14px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);border-radius:8px;font-size:12px;color:var(--amber)">Note: CompliSure provides general guidance only. This is not legal advice — please consult a qualified professional for complex notices.</div>
-      `;
-      return;
+  try {
+    const payload = {
+      text,
+      companyName: state.auth.companyName,
+      founderName: state.auth.fullName
+    };
+
+    if (file) {
+      const upload = await readFileAsUpload(file);
+      payload.fileName = upload.fileName;
+      payload.mimeType = upload.mimeType;
+      payload.fileBase64 = upload.fileBase64;
+      state.noticeWorkspace.sourceLabel = file.name;
+      state.noticeWorkspace.selectedFileName = file.name;
+    } else {
+      state.noticeWorkspace.selectedFileName = "";
+      state.noticeWorkspace.sourceLabel = text ? "Pasted notice text" : state.noticeWorkspace.sourceLabel;
     }
 
-    output.innerHTML = `
-      <div class="ni-row"><div class="ni-label">Notice type</div><div class="ni-val">${match.type}</div></div>
-      <div class="ni-row"><div class="ni-label">Why you received this</div><div class="ni-val">${match.reason}</div></div>
-      <div class="ni-row"><div class="ni-label">Amount outstanding</div><div class="ni-val urgent">${penalty}</div></div>
-      <div class="ni-row"><div class="ni-label">Required action</div><div class="ni-val">${match.action}</div></div>
-      <div class="ni-row"><div class="ni-label">Response deadline</div><div class="ni-val urgent">${match.deadline || responseWindow}</div></div>
-      <div class="ni-row"><div class="ni-label">Urgency level</div><div class="ni-val ${match.urgency.includes("CRITICAL") ? "urgent" : "ok"}">${match.urgency}</div></div>
-      <div class="ni-row"><div class="ni-label">Professional needed?</div><div class="ni-val">${match.ca}</div></div>
-      <div style="margin-top:1rem;padding:10px 14px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);border-radius:8px;font-size:12px;color:var(--amber)">CompliSure provides general guidance only — not legal advice. Consult your CA or CS before responding to any notice.</div>
-    `;
-  }, 900);
+    const response = await postJson("/api/notices/interpret", payload);
+    state.noticeWorkspace.loading = false;
+    state.noticeWorkspace.interpretation = response.interpretation || null;
+    state.noticeWorkspace.chatHistory = [];
+    state.noticeWorkspace.noticeError = false;
+    state.noticeWorkspace.noticeMessage = response.message || "Notice interpreted successfully.";
+    state.noticeWorkspace.questionInput = "";
+    persistNoticeWorkspace();
+    if (input && file) {
+      input.value = "";
+    }
+    renderApp();
+  } catch (error) {
+    state.noticeWorkspace.loading = false;
+    state.noticeWorkspace.noticeError = true;
+    state.noticeWorkspace.noticeMessage = error.message || "Could not interpret the notice.";
+    renderApp();
+  }
+}
+
+async function handleNoticeChat() {
+  syncNoticeFormToState();
+  const question = (state.noticeWorkspace.questionInput || "").trim();
+  const interpretation = state.noticeWorkspace.interpretation;
+  state.activeToolTab = "notice";
+
+  if (!interpretation) {
+    state.noticeWorkspace.noticeError = true;
+    state.noticeWorkspace.noticeMessage = "Interpret a notice first before starting a follow-up chat.";
+    renderApp();
+    return;
+  }
+
+  if (!question) {
+    state.noticeWorkspace.noticeError = true;
+    state.noticeWorkspace.noticeMessage = "Enter a follow-up question about the notice.";
+    renderApp();
+    return;
+  }
+
+  state.noticeWorkspace.chatLoading = true;
+  state.noticeWorkspace.noticeError = false;
+  state.noticeWorkspace.noticeMessage = "Asking Groq your follow-up question...";
+  renderApp();
+
+  try {
+    const response = await postJson("/api/notices/chat", {
+      question,
+      interpretation,
+      history: state.noticeWorkspace.chatHistory,
+      sourceText: state.noticeWorkspace.sourceText,
+      companyName: state.auth.companyName,
+      founderName: state.auth.fullName
+    });
+
+    state.noticeWorkspace.chatHistory = [
+      ...state.noticeWorkspace.chatHistory,
+      { role: "user", content: question },
+      {
+        role: "assistant",
+        content: response.answer || "No answer returned.",
+        businessImpact: response.businessImpact || "",
+        nextSteps: Array.isArray(response.nextSteps) ? response.nextSteps : [],
+        caution: response.caution || ""
+      }
+    ];
+    state.noticeWorkspace.chatLoading = false;
+    state.noticeWorkspace.questionInput = "";
+    state.noticeWorkspace.noticeError = false;
+    state.noticeWorkspace.noticeMessage = "Follow-up answered. Keep asking if you want to drill deeper.";
+    persistNoticeWorkspace();
+    renderApp();
+  } catch (error) {
+    state.noticeWorkspace.chatLoading = false;
+    state.noticeWorkspace.noticeError = true;
+    state.noticeWorkspace.noticeMessage = error.message || "Could not answer the follow-up question.";
+    renderApp();
+  }
 }
 
 async function handleWhatsappAction(action) {
@@ -596,6 +802,162 @@ async function handleWhatsappAction(action) {
   }
 }
 
+function syncCaFormToState() {
+  const clientField = document.getElementById("ca-client-input");
+  const filingField = document.getElementById("ca-filing-input");
+  const deptField = document.getElementById("ca-dept-input");
+  const dueDateField = document.getElementById("ca-due-date-input");
+
+  state.caPortal.form.client = clientField ? clientField.value.trim() : state.caPortal.form.client;
+  state.caPortal.form.filing = filingField ? filingField.value.trim() : state.caPortal.form.filing;
+  state.caPortal.form.dept = deptField ? deptField.value.trim() : state.caPortal.form.dept;
+  state.caPortal.form.dueDate = dueDateField ? dueDateField.value : state.caPortal.form.dueDate;
+}
+
+async function hydrateCaRowsFromServer(force = false) {
+  if ((state.caPortal.hydrated && !force) || state.caPortal.hydrating) {
+    return;
+  }
+
+  state.caPortal.hydrating = true;
+  state.caPortal.error = false;
+  state.caPortal.message = force ? "Refreshing CA portal from Qdrant Cloud..." : "Loading CA portal from Qdrant Cloud...";
+  renderApp();
+
+  try {
+    const params = new URLSearchParams(buildCaWorkspaceQuery());
+    const response = await fetchJson(`/api/ca/rows?${params.toString()}`);
+    state.caRows = Array.isArray(response.rows) ? response.rows : [];
+    state.caPortal.hydrating = false;
+    state.caPortal.hydrated = true;
+    state.caPortal.error = false;
+    state.caPortal.message = response.message || "CA portal synced with Qdrant Cloud.";
+    renderApp();
+  } catch (error) {
+    state.caPortal.hydrating = false;
+    state.caPortal.hydrated = true;
+    state.caPortal.error = true;
+    state.caPortal.message = error.message || "Could not load the CA portal from Qdrant Cloud.";
+    renderApp();
+  }
+}
+
+async function handleAddCaRow() {
+  syncCaFormToState();
+  const form = state.caPortal.form;
+  state.activeToolTab = "ca";
+
+  if (!form.client || !form.filing || !form.dept || !form.dueDate) {
+    state.caPortal.error = true;
+    state.caPortal.message = "Client, filing, department, and due date are required.";
+    renderApp();
+    return;
+  }
+
+  state.caPortal.saving = true;
+  state.caPortal.error = false;
+  state.caPortal.message = `Saving ${form.filing} for ${form.client}...`;
+  renderApp();
+
+  try {
+    const response = await postJson("/api/ca/rows/upsert", {
+      ...buildCaWorkspaceQuery(),
+      row: {
+        client: form.client,
+        filing: form.filing,
+        dept: form.dept,
+        dueDate: form.dueDate,
+        status: "pending"
+      }
+    });
+
+    state.caRows = Array.isArray(response.rows) ? response.rows : state.caRows;
+    state.caPortal.form = createDefaultCaPortalState().form;
+    state.caPortal.saving = false;
+    state.caPortal.error = false;
+    state.caPortal.message = response.message || "CA filing added.";
+    renderApp();
+  } catch (error) {
+    state.caPortal.saving = false;
+    state.caPortal.error = true;
+    state.caPortal.message = error.message || "Could not add the CA filing.";
+    renderApp();
+  }
+}
+
+async function handleCaStatusChange(select) {
+  const rowIndex = Number(select.dataset.rowIndex);
+  const row = state.caRows[rowIndex];
+  if (!row) return;
+
+  const previousStatus = row.status;
+  const nextStatus = select.value;
+  row.status = nextStatus;
+  applyStatusStyle(select, nextStatus);
+  updatePendingCount();
+
+  state.caPortal.saving = true;
+  state.caPortal.error = false;
+  state.caPortal.message = `Updating ${row.filing} for ${row.client}...`;
+
+  try {
+    const response = await postJson("/api/ca/rows/upsert", {
+      ...buildCaWorkspaceQuery(),
+      row: {
+        ...row,
+        status: nextStatus
+      }
+    });
+
+    state.caRows = Array.isArray(response.rows) ? response.rows : state.caRows;
+    state.caPortal.saving = false;
+    state.caPortal.error = false;
+    state.caPortal.message = response.message || "CA filing updated.";
+    renderApp();
+  } catch (error) {
+    row.status = previousStatus;
+    state.caPortal.saving = false;
+    state.caPortal.error = true;
+    state.caPortal.message = error.message || "Could not update the CA filing.";
+    renderApp();
+  }
+}
+
+async function handleMarkAllFiled() {
+  if (!state.caRows.length) return;
+
+  state.activeToolTab = "ca";
+  state.caPortal.saving = true;
+  state.caPortal.error = false;
+  state.caPortal.message = "Marking all CA portal filings as filed...";
+  renderApp();
+
+  try {
+    const response = await postJson("/api/ca/rows/mark-all-filed", {
+      ...buildCaWorkspaceQuery(),
+      rows: state.caRows
+    });
+
+    state.caRows = Array.isArray(response.rows) ? response.rows : state.caRows;
+    state.caPortal.saving = false;
+    state.caPortal.error = false;
+    state.caPortal.message = response.message || "All CA portal filings marked as filed.";
+    renderApp();
+  } catch (error) {
+    state.caPortal.saving = false;
+    state.caPortal.error = true;
+    state.caPortal.message = error.message || "Could not mark all CA portal filings as filed.";
+    renderApp();
+  }
+}
+
+function buildCaWorkspaceQuery() {
+  return {
+    companyName: state.auth.companyName || "CompliSure Account",
+    fullName: state.auth.fullName || "Founder"
+  };
+}
+
 function applyActiveToolTab() {
   const activeTab = state.activeToolTab || "onboard";
   document.querySelectorAll(".demo-tab").forEach((item) => {
@@ -608,10 +970,11 @@ function applyActiveToolTab() {
 
 function handleBillFileSelection(event) {
   const file = event.target.files?.[0];
+  state.activeToolTab = "bills";
   state.billWorkspace.selectedFileName = file ? file.name : "";
   state.billWorkspace.scanMessage = file ? `Ready to scan ${file.name}.` : "";
   state.billWorkspace.scanError = false;
-  document.querySelector(".bill-dropzone-sub")?.replaceChildren(state.billWorkspace.selectedFileName || "No file selected yet");
+  document.querySelector("#tab-bills .bill-dropzone-sub")?.replaceChildren(state.billWorkspace.selectedFileName || "No file selected yet");
 }
 
 async function handleBillScan() {
@@ -620,14 +983,14 @@ async function handleBillScan() {
   state.activeToolTab = "bills";
 
   if (!file) {
-    state.billWorkspace.scanMessage = "Choose a bill or invoice image before scanning.";
+    state.billWorkspace.scanMessage = "Choose a bill, invoice image, or PDF before scanning.";
     state.billWorkspace.scanError = true;
     renderApp();
     return;
   }
 
-  if (file.size > 8 * 1024 * 1024) {
-    state.billWorkspace.scanMessage = "Use an image smaller than 8 MB for reliable invoice extraction.";
+  if (file.size > 10 * 1024 * 1024) {
+    state.billWorkspace.scanMessage = "Use a document smaller than 10 MB for reliable invoice extraction.";
     state.billWorkspace.scanError = true;
     renderApp();
     return;
@@ -635,26 +998,29 @@ async function handleBillScan() {
 
   state.billWorkspace.scanLoading = true;
   state.billWorkspace.scanError = false;
-  state.billWorkspace.scanMessage = `Scanning ${file.name} with Gemini...`;
+  state.billWorkspace.scanMessage = `Scanning ${file.name} with Groq...`;
   state.billWorkspace.selectedFileName = file.name;
   renderApp();
 
   try {
     const upload = await readFileAsUpload(file);
     const response = await postJson("/api/bills/scan", upload);
-    const document = buildStoredBillDocument(response.document);
-    const transactions = buildTransactionsFromDocument(document);
-
-    state.billWorkspace.documents = [document, ...state.billWorkspace.documents];
-    state.billWorkspace.transactions = [...transactions, ...state.billWorkspace.transactions];
+    state.billWorkspace.documents = Array.isArray(response.workspace?.documents) ? response.workspace.documents : state.billWorkspace.documents;
+    state.billWorkspace.transactions = Array.isArray(response.workspace?.transactions) ? response.workspace.transactions : state.billWorkspace.transactions;
     state.billWorkspace.scanLoading = false;
     state.billWorkspace.scanError = false;
-    state.billWorkspace.scanMessage = response.message || `${document.fileName} scanned successfully.`;
+    state.billWorkspace.scanMessage = response.message || `${file.name} scanned successfully.`;
     state.billWorkspace.selectedFileName = "";
+    state.billWorkspace.hydrated = true;
+    state.billWorkspace.hydrating = false;
     persistBillWorkspace();
+    if (input) {
+      input.value = "";
+    }
     renderApp();
   } catch (error) {
     state.billWorkspace.scanLoading = false;
+    state.billWorkspace.hydrating = false;
     state.billWorkspace.scanError = true;
     state.billWorkspace.scanMessage = error.message || "Bill scanning failed.";
     renderApp();
@@ -728,8 +1094,8 @@ async function readFileAsUpload(file) {
 
   return {
     fileName: file.name,
-    mimeType: file.type || "image/jpeg",
-    imageBase64: base64
+    mimeType: file.type || inferMimeTypeFromName(file.name),
+    fileBase64: base64
   };
 }
 
@@ -737,7 +1103,7 @@ function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("Could not read the uploaded bill image."));
+    reader.onerror = () => reject(new Error("Could not read the uploaded bill or invoice file."));
     reader.readAsDataURL(file);
   });
 }
@@ -807,6 +1173,33 @@ function buildTransactionsFromDocument(document) {
   }));
 }
 
+async function hydrateBillWorkspaceFromServer() {
+  if (state.billWorkspace.hydrated || state.billWorkspace.hydrating) {
+    return;
+  }
+
+  state.billWorkspace.hydrating = true;
+
+  try {
+    const response = await fetchJson("/api/bills");
+    const serverWorkspace = createDefaultBillWorkspace(response.workspace || {});
+    const shouldUseServerData = serverWorkspace.documents.length > 0 || serverWorkspace.transactions.length > 0 || state.billWorkspace.documents.length === 0;
+
+    if (shouldUseServerData) {
+      state.billWorkspace.documents = serverWorkspace.documents;
+      state.billWorkspace.transactions = serverWorkspace.transactions;
+      persistBillWorkspace();
+    }
+
+    state.billWorkspace.hydrated = true;
+    state.billWorkspace.hydrating = false;
+    renderApp();
+  } catch {
+    state.billWorkspace.hydrated = true;
+    state.billWorkspace.hydrating = false;
+  }
+}
+
 function createId(prefix) {
   if (globalThis.crypto?.randomUUID) {
     return `${prefix}-${globalThis.crypto.randomUUID()}`;
@@ -821,6 +1214,16 @@ function toNumber(value) {
     return Number.parseFloat(cleaned) || 0;
   }
   return Number(value) || 0;
+}
+
+function inferMimeTypeFromName(fileName) {
+  const normalized = String(fileName || "").toLowerCase();
+  if (normalized.endsWith(".pdf")) return "application/pdf";
+  if (normalized.endsWith(".png")) return "image/png";
+  if (normalized.endsWith(".webp")) return "image/webp";
+  if (normalized.endsWith(".heic")) return "image/heic";
+  if (normalized.endsWith(".heif")) return "image/heif";
+  return "image/jpeg";
 }
 
 function persistSession() {
@@ -846,6 +1249,79 @@ function readSession() {
 
 function clearSession() {
   localStorage.removeItem("complisure-session");
+}
+
+function persistReminderProfile() {
+  localStorage.setItem("complisure-reminder-profile", JSON.stringify({
+    ownerName: state.reminders.ownerName,
+    companyName: state.reminders.companyName,
+    ownerEmail: state.reminders.ownerEmail,
+    caName: state.reminders.caName,
+    caEmail: state.reminders.caEmail,
+    obligationName: state.reminders.obligationName,
+    dueDate: state.reminders.dueDate,
+    trigger: state.reminders.trigger
+  }));
+}
+
+function readReminderProfile() {
+  try {
+    const raw = localStorage.getItem("complisure-reminder-profile");
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function persistBillWorkspace() {
+  localStorage.setItem("complisure-bill-workspace", JSON.stringify({
+    documents: state.billWorkspace.documents,
+    transactions: state.billWorkspace.transactions
+  }));
+}
+
+function readBillWorkspace() {
+  try {
+    const raw = localStorage.getItem("complisure-bill-workspace");
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function persistNoticeWorkspace() {
+  localStorage.setItem("complisure-notice-workspace", JSON.stringify({
+    sourceText: state.noticeWorkspace.sourceText,
+    sourceLabel: state.noticeWorkspace.sourceLabel,
+    interpretation: state.noticeWorkspace.interpretation,
+    chatHistory: state.noticeWorkspace.chatHistory
+  }));
+}
+
+function readNoticeWorkspace() {
+  try {
+    const raw = localStorage.getItem("complisure-notice-workspace");
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url);
+
+  let data = {};
+  try {
+    data = await response.json();
+  } catch {
+    data = {};
+  }
+
+  if (!response.ok || data.success === false) {
+    throw new Error(data.error || data.message || data.detail || `Request failed with ${response.status}.`);
+  }
+
+  return data;
 }
 
 function scrollToId(id) {

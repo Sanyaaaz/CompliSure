@@ -117,34 +117,6 @@ const penaltyPanel = `
   </div>
 `;
 
-const noticePanel = `
-  <div class="demo-panel" id="tab-notice">
-    <div class="eyebrow" style="margin-bottom:.5rem">AI-powered - plain language</div>
-    <h3 style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:var(--text);margin-bottom:1.75rem">Paste any government notice - get an instant explanation</h3>
-    <div class="notice-grid">
-      <div class="notice-input-area">
-        <textarea class="notice-ta" id="notice-text" placeholder="Paste notice text here...
-
-Example: 'This is to inform that your company M/s ABC Pvt Ltd (CIN: U72200KA2021PTC134567) has failed to file Form MGT-7 for the financial year 2022-23 within the prescribed time. A penalty of Rs100 per day has been levied under Section 92(5) of the Companies Act 2013. The total outstanding amount is Rs18,200. You are directed to make payment within 30 days failing which further action will be initiated.'"></textarea>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <button class="interpret-btn" id="interpret-notice-btn" style="flex:1" type="button">
-            <span>Interpret this notice</span>
-            <span>-&gt;</span>
-          </button>
-          <button class="interpret-btn" id="load-sample-notice-btn" style="background:var(--bg4);color:var(--text2);border:1px solid var(--border2);flex:0" type="button">Load sample</button>
-        </div>
-      </div>
-      <div class="notice-result" id="notice-result">
-        <div class="notice-placeholder">
-          <span class="notice-placeholder-icon">Notice</span>
-          <div>Paste a notice to get an instant plain-language breakdown</div>
-        </div>
-        <div class="notice-output" id="notice-output"></div>
-      </div>
-    </div>
-  </div>
-`;
-
 function formatCurrency(value, currency = "INR") {
   const amount = Number(value) || 0;
   return new Intl.NumberFormat("en-IN", {
@@ -152,6 +124,137 @@ function formatCurrency(value, currency = "INR") {
     currency,
     maximumFractionDigits: 2
   }).format(amount);
+}
+
+function renderNoticePanel(state) {
+  const workspace = state.noticeWorkspace || {};
+  const interpretation = workspace.interpretation || null;
+  const displaySourceLabel = workspace.selectedFileName || workspace.sourceLabel || "No file selected yet";
+  const confidencePercent = interpretation ? Math.round((Number(interpretation.confidence) || 0) * 100) : 0;
+
+  const amountsMarkup = interpretation?.keyAmounts?.length
+    ? interpretation.keyAmounts.map((item) => `<span class="notice-chip">${escapeHtml(item)}</span>`).join("")
+    : `<span class="notice-chip muted">No amount clearly visible</span>`;
+  const sectionsMarkup = interpretation?.keySections?.length
+    ? interpretation.keySections.map((item) => `<span class="notice-chip">${escapeHtml(item)}</span>`).join("")
+    : `<span class="notice-chip muted">No legal section clearly visible</span>`;
+  const requiredActionsMarkup = interpretation?.requiredActions?.length
+    ? interpretation.requiredActions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")
+    : `<li>Review the notice with your compliance lead and identify the missing filing or response.</li>`;
+  const nextStepsMarkup = interpretation?.immediateNextSteps?.length
+    ? interpretation.immediateNextSteps.map((item) => `<li>${escapeHtml(item)}</li>`).join("")
+    : `<li>Start with the authority portal or working papers mentioned in the notice.</li>`;
+  const ignoredMarkup = interpretation?.whatHappensIfIgnored?.length
+    ? interpretation.whatHappensIfIgnored.map((item) => `<li>${escapeHtml(item)}</li>`).join("")
+    : `<li>Escalation risk is unclear from the uploaded notice.</li>`;
+
+  const chatMarkup = workspace.chatHistory?.length
+    ? workspace.chatHistory.map((message) => `
+      <div class="notice-chat-msg ${message.role === "user" ? "user" : "assistant"}">
+        <div class="notice-chat-role">${message.role === "user" ? "You" : "CompliSure AI"}</div>
+        <div class="notice-chat-body">${escapeHtml(message.content || "")}</div>
+        ${message.businessImpact ? `<div class="notice-chat-impact"><strong>Business effect:</strong> ${escapeHtml(message.businessImpact)}</div>` : ""}
+        ${Array.isArray(message.nextSteps) && message.nextSteps.length ? `<ul class="notice-chat-steps">${message.nextSteps.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
+        ${message.caution ? `<div class="notice-chat-caution">${escapeHtml(message.caution)}</div>` : ""}
+      </div>
+    `).join("")
+    : `<div class="notice-chat-empty">${escapeHtml(interpretation?.chatStarter || "Ask what this means for your cash flow, directors, response timeline, or next best step.")}</div>`;
+
+  return `
+    <div class="demo-panel" id="tab-notice">
+      <div class="eyebrow" style="margin-bottom:.5rem">Groq-powered notice desk</div>
+      <h3 style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:var(--text);margin-bottom:1rem">Upload a notice or paste text to understand what it means for your business</h3>
+      <p style="font-size:14px;color:var(--text2);line-height:1.7;margin-bottom:1.75rem;max-width:760px">CompliSure can analyze notice text, PDFs, screenshots, and images using Groq, explain the notice in plain English, outline business impact, and let you keep asking follow-up questions in the same workspace.</p>
+      <div class="notice-grid">
+        <div class="notice-input-area">
+          <div class="bill-upload-card notice-upload-card">
+            <div class="bill-upload-title">Notice intake</div>
+            <p class="bill-upload-copy">Upload a PDF/image notice or paste the text. Groq will explain what the authority is saying, the risk to your business, and what to do next.</p>
+            <label class="bill-dropzone" for="notice-upload-input">
+              <input id="notice-upload-input" type="file" accept="application/pdf,image/png,image/jpeg,image/webp,image/heic,image/heif" />
+              <span class="bill-dropzone-icon">📄</span>
+              <span class="bill-dropzone-title">Choose a notice PDF or image</span>
+              <span class="bill-dropzone-sub">${displaySourceLabel}</span>
+            </label>
+          </div>
+          <textarea class="notice-ta" id="notice-text" placeholder="Paste notice text here...
+
+Example: 'This is to inform that your company M/s ABC Pvt Ltd (CIN: U72200KA2021PTC134567) has failed to file Form MGT-7 for the financial year 2022-23 within the prescribed time. A penalty of Rs100 per day has been levied under Section 92(5) of the Companies Act 2013. The total outstanding amount is Rs18,200. You are directed to make payment within 30 days failing which further action will be initiated.'">${escapeAttr(workspace.sourceText || "")}</textarea>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="interpret-btn" id="interpret-notice-btn" style="flex:1" type="button" ${workspace.loading ? "disabled" : ""}>
+              <span>${workspace.loading ? "Analyzing notice..." : "Interpret this notice"}</span>
+              <span>-&gt;</span>
+            </button>
+            <button class="interpret-btn" id="load-sample-notice-btn" style="background:var(--bg4);color:var(--text2);border:1px solid var(--border2);flex:0" type="button" ${workspace.loading ? "disabled" : ""}>Load sample</button>
+          </div>
+          ${workspace.noticeMessage ? `<div class="auth-toast ${workspace.noticeError ? "auth-toast-error" : ""}">${workspace.noticeMessage}</div>` : ""}
+        </div>
+        <div class="notice-result notice-result-rich">
+          ${interpretation ? `
+            <div class="notice-output-rich">
+              <div class="notice-summary-head">
+                <div>
+                  <div class="notice-title">${escapeHtml(interpretation.noticeType || "Regulatory notice")}</div>
+                  <div class="notice-subtitle">${escapeHtml(interpretation.authority || "Authority not clearly identified")}</div>
+                </div>
+                <div class="notice-confidence">${confidencePercent}% confidence</div>
+              </div>
+              <div class="notice-card-grid">
+                <div class="notice-card">
+                  <div class="ni-label">Urgency</div>
+                  <div class="ni-val ${interpretation.urgency === "critical" || interpretation.urgency === "high" ? "urgent" : "ok"}">${escapeHtml(interpretation.urgency || "medium")}</div>
+                </div>
+                <div class="notice-card">
+                  <div class="ni-label">Response deadline</div>
+                  <div class="ni-val ${interpretation.responseDeadline ? "urgent" : ""}">${escapeHtml(interpretation.responseDeadline || "Not clearly stated")}</div>
+                </div>
+              </div>
+              <div class="ni-row"><div class="ni-label">Summary</div><div class="ni-val">${escapeHtml(interpretation.summary || "No summary returned.")}</div></div>
+              <div class="ni-row"><div class="ni-label">Plain English meaning</div><div class="ni-val">${escapeHtml(interpretation.plainEnglishMeaning || "No plain-language explanation returned.")}</div></div>
+              <div class="ni-row"><div class="ni-label">Why you received this</div><div class="ni-val">${escapeHtml(interpretation.whyReceived || "Reason not clearly visible in the notice.")}</div></div>
+              <div class="ni-row"><div class="ni-label">Business impact</div><div class="ni-val">${escapeHtml(interpretation.businessImpact || "Business impact is unclear from the uploaded notice.")}</div></div>
+              <div class="ni-row"><div class="ni-label">Financial exposure</div><div class="ni-val urgent">${escapeHtml(interpretation.financialExposure || "No financial exposure clearly stated.")}</div></div>
+              <div class="ni-row"><div class="ni-label">Operational risk</div><div class="ni-val">${escapeHtml(interpretation.operationalRisk || "No operational risk clearly stated.")}</div></div>
+              <div class="ni-row"><div class="ni-label">Key amounts</div><div class="notice-chip-row">${amountsMarkup}</div></div>
+              <div class="ni-row"><div class="ni-label">Key sections / references</div><div class="notice-chip-row">${sectionsMarkup}</div></div>
+              <div class="notice-list-grid">
+                <div class="notice-list-card">
+                  <div class="ni-label">Required actions</div>
+                  <ul class="notice-list">${requiredActionsMarkup}</ul>
+                </div>
+                <div class="notice-list-card">
+                  <div class="ni-label">Immediate next steps</div>
+                  <ul class="notice-list">${nextStepsMarkup}</ul>
+                </div>
+                <div class="notice-list-card">
+                  <div class="ni-label">If ignored</div>
+                  <ul class="notice-list">${ignoredMarkup}</ul>
+                </div>
+              </div>
+              <div class="ni-row"><div class="ni-label">Professional help</div><div class="ni-val">${escapeHtml(interpretation.professionalHelp || "Consider getting a CA, CS, or legal review depending on the authority involved.")}</div></div>
+            </div>
+          ` : `
+            <div class="notice-placeholder">
+              <span class="notice-placeholder-icon">Notice</span>
+              <div>Upload a PDF/image or paste notice text to get a real Groq-powered interpretation.</div>
+            </div>
+          `}
+        </div>
+      </div>
+      <div class="notice-chat-panel">
+        <div class="bill-table-title">Ask follow-up questions</div>
+        <div class="bill-table-sub">Keep chatting about deadlines, penalties, director exposure, business impact, or what to do next.</div>
+        <div class="notice-chat-log">${chatMarkup}</div>
+        <div class="notice-chat-form">
+          <textarea id="notice-chat-input" class="notice-chat-input" placeholder="Ask: How will this affect our business if we wait another 2 weeks?">${escapeAttr(workspace.questionInput || "")}</textarea>
+          <button class="interpret-btn notice-chat-send" id="send-notice-chat-btn" type="button" ${workspace.chatLoading || !interpretation ? "disabled" : ""}>
+            <span>${workspace.chatLoading ? "Thinking..." : "Ask Groq"}</span>
+            <span>-&gt;</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function renderBillScannerPanel(state) {
@@ -197,22 +300,22 @@ function renderBillScannerPanel(state) {
 
   return `
     <div class="demo-panel" id="tab-bills">
-      <div class="eyebrow" style="margin-bottom:.5rem">Gemini-powered accounting capture</div>
+      <div class="eyebrow" style="margin-bottom:.5rem">Groq-powered accounting capture</div>
       <h3 style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:var(--text);margin-bottom:1rem">Scan bills, extract transactions, and build your ledger automatically</h3>
-      <p style="font-size:14px;color:var(--text2);line-height:1.7;margin-bottom:1.75rem;max-width:760px">Upload a bill or invoice image and CompliSure will use Gemini to read the document, structure the purchase data, and save reusable bookkeeping entries for future automation.</p>
+      <p style="font-size:14px;color:var(--text2);line-height:1.7;margin-bottom:1.75rem;max-width:760px">Upload a bill, invoice image, or PDF and CompliSure will use Groq to read the document, structure the purchase data, and save reusable bookkeeping entries for future automation.</p>
 
       <div class="bill-scan-grid">
-        <div class="bill-upload-card">
+      <div class="bill-upload-card">
           <div class="bill-upload-title">Document intake</div>
-          <p class="bill-upload-copy">Accepts JPG, PNG, WEBP, and HEIC bill images. The extracted data is stored in your dashboard for later workflows.</p>
+          <p class="bill-upload-copy">Accepts PDF, JPG, PNG, WEBP, and HEIC bills or invoices. Groq extracts the data and stores it in your dashboard for future workflows.</p>
           <label class="bill-dropzone" for="bill-upload-input">
-            <input id="bill-upload-input" type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" />
+            <input id="bill-upload-input" type="file" accept="application/pdf,image/png,image/jpeg,image/webp,image/heic,image/heif" />
             <span class="bill-dropzone-icon">🧾</span>
-            <span class="bill-dropzone-title">Choose a bill or invoice image</span>
+            <span class="bill-dropzone-title">Choose a bill, invoice, or PDF</span>
             <span class="bill-dropzone-sub">${workspace.selectedFileName || "No file selected yet"}</span>
           </label>
-          <button class="btn-green bill-scan-btn" id="scan-bill-btn" type="button" ${workspace.scanLoading ? "disabled" : ""}>${workspace.scanLoading ? "Scanning with Gemini..." : "Scan and store in ledger"} <span>→</span></button>
-          <p class="bill-upload-note">This stores normalized vendor, tax, and line-item data locally so later features can reuse it.</p>
+          <button class="btn-green bill-scan-btn" id="scan-bill-btn" type="button" ${workspace.scanLoading ? "disabled" : ""}>${workspace.scanLoading ? "Scanning with Groq..." : "Scan and store in ledger"} <span>→</span></button>
+          <p class="bill-upload-note">This stores normalized vendor, tax, and line-item data in the app ledger so later features can reuse it.</p>
           ${workspace.scanMessage ? `<div class="auth-toast ${workspace.scanError ? "auth-toast-error" : ""}">${workspace.scanMessage}</div>` : ""}
         </div>
 
@@ -298,6 +401,13 @@ function escapeAttr(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
@@ -391,16 +501,77 @@ function renderStatusOptions(status) {
   `;
 }
 
-export function renderLiveTools(state) {
-  const rowsMarkup = state.caRows.map((row, index) => `
+function renderCaPortal(state) {
+  const rows = state.caRows || [];
+  const caPortal = state.caPortal || {};
+  const form = caPortal.form || {};
+  const rowsMarkup = rows.length ? rows.map((row, index) => `
     <div class="ca-row">
-      <div><div class="ca-client">${row.client}</div><div class="ca-dept" style="font-size:11px;color:var(--text3)">${row.filing}</div></div>
-      <div class="ca-dept">${row.dept}</div>
-      <div class="ca-deadline due-${row.dueTone}">${row.due}</div>
-      <select class="ca-status-sel" data-row-index="${index}">${renderStatusOptions(row.status)}</select>
+      <div>
+        <div class="ca-client">${escapeHtml(row.client)}</div>
+        <div class="ca-dept" style="font-size:11px;color:var(--text3)">${escapeHtml(row.filing)}</div>
+      </div>
+      <div class="ca-dept">${escapeHtml(row.dept)}</div>
+      <div class="ca-deadline due-${row.dueTone}">${escapeHtml(row.due || "Date not set")}</div>
+      <select class="ca-status-sel" data-row-index="${index}" ${caPortal.saving ? "disabled" : ""}>${renderStatusOptions(row.status)}</select>
     </div>
-  `).join("");
+  `).join("") : `
+    <div class="ca-empty-state">No filings stored for this workspace yet. Add your first client obligation below.</div>
+  `;
 
+  return `
+    <div class="demo-panel" id="tab-ca">
+      <div class="eyebrow" style="margin-bottom:.5rem">Qdrant-backed multi-client dashboard</div>
+      <h3 style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:var(--text);margin-bottom:1rem">Your entire client portfolio - one working pane</h3>
+      <p style="font-size:14px;color:var(--text2);line-height:1.7;margin-bottom:1.5rem;max-width:760px">The CA portal now persists filings in Qdrant Cloud so status changes, refreshes, and new obligations are stored as live data instead of static demo rows.</p>
+
+      <div class="ca-form-card">
+        <div class="ca-form-head">
+          <div>
+            <div class="bill-upload-title">Add client obligation</div>
+            <div class="bill-upload-copy">Create a filing row for a client and track it from overdue to filed.</div>
+          </div>
+          <div class="ca-form-actions">
+            <button class="btn-outline ca-secondary-btn" id="refresh-ca-rows-btn" type="button" ${caPortal.hydrating || caPortal.saving ? "disabled" : ""}>${caPortal.hydrating ? "Refreshing..." : "Refresh"}</button>
+            <button class="btn-green ca-primary-btn" id="add-ca-row-btn" type="button" ${caPortal.saving ? "disabled" : ""}>${caPortal.saving ? "Saving..." : "Add filing"} <span>→</span></button>
+          </div>
+        </div>
+        <div class="ca-form-grid">
+          <div class="field" style="margin-bottom:0">
+            <label for="ca-client-input">Client name</label>
+            <input id="ca-client-input" type="text" value="${escapeAttr(form.client || "")}" placeholder="Zephyr Tech Pvt Ltd" />
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label for="ca-filing-input">Filing / obligation</label>
+            <input id="ca-filing-input" type="text" value="${escapeAttr(form.filing || "")}" placeholder="GSTR-3B - April" />
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label for="ca-dept-input">Department</label>
+            <input id="ca-dept-input" type="text" value="${escapeAttr(form.dept || "")}" placeholder="GST" />
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label for="ca-due-date-input">Due date</label>
+            <input id="ca-due-date-input" type="date" value="${escapeAttr(form.dueDate || "")}" />
+          </div>
+        </div>
+        ${caPortal.message ? `<div class="auth-toast ${caPortal.error ? "auth-toast-error" : ""}" style="margin-top:1rem">${escapeHtml(caPortal.message)}</div>` : ""}
+      </div>
+
+      <div class="ca-dash">
+        <div class="ca-dash-header">
+          <div class="ca-title">Pending items across all clients <span class="ca-badge-count" id="pending-count">${rows.filter((row) => ["overdue", "pending"].includes(row.status)).length} urgent</span></div>
+          <button id="mark-all-filed-btn" style="background:var(--green-bg);color:var(--green);border:1px solid rgba(34,197,94,.25);padding:7px 14px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif" type="button" ${caPortal.saving || !rows.length ? "disabled" : ""}>Mark all filed</button>
+        </div>
+        <div class="ca-row-head">
+          <span>Client / Filing</span><span>Dept</span><span>Due date</span><span>Status</span>
+        </div>
+        <div id="ca-rows">${rowsMarkup}</div>
+      </div>
+    </div>
+  `;
+}
+
+export function renderLiveTools(state) {
   const reminders = state.reminders || {
     ownerEmail: "",
     caEmail: "",
@@ -408,13 +579,17 @@ export function renderLiveTools(state) {
     dueDate: "",
     trigger: "7_days_before"
   };
+  const isDetailsOnlyLogin = Boolean(state.flags?.detailsOnlyLogin);
+  const toolsSubtitle = isDetailsOnlyLogin
+    ? "Your dashboard is currently open in temporary direct-access mode. The live tools are available now, and Aadhaar OTP can be turned back on later."
+    : "The live tools have moved out of the public landing page. Once Aadhaar OTP verification is done, the full toolset opens here.";
 
   return `
     <section id="tools" style="padding-top:5rem">
       <div class="wrap">
         <div class="eyebrow">Live tools</div>
         <h2 class="sec-title">Your verified dashboard toolkit</h2>
-        <p class="sec-sub">The live tools have moved out of the public landing page. Once Aadhaar OTP verification is done, the full toolset opens here.</p>
+        <p class="sec-sub">${toolsSubtitle}</p>
         <div class="demo-area">
           <div class="demo-tabs">
             <div class="demo-tab active" data-tab="onboard">Smart onboarding</div>
@@ -426,22 +601,10 @@ export function renderLiveTools(state) {
           </div>
           ${onboardingPanel}
           ${penaltyPanel}
-          ${noticePanel}
-          ${whatsappPanel}
-          <div class="demo-panel" id="tab-ca">
-            <div class="eyebrow" style="margin-bottom:.5rem">Multi-client dashboard</div>
-            <h3 style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:var(--text);margin-bottom:1.75rem">Your entire client portfolio - one pane</h3>
-            <div class="ca-dash">
-              <div class="ca-dash-header">
-                <div class="ca-title">Pending items across all clients <span class="ca-badge-count" id="pending-count">4 urgent</span></div>
-                <button id="mark-all-filed-btn" style="background:var(--green-bg);color:var(--green);border:1px solid rgba(34,197,94,.25);padding:7px 14px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif" type="button">Mark selected filed</button>
-              </div>
-              <div class="ca-row-head">
-                <span>Client / Filing</span><span>Dept</span><span>Due date</span><span>Status</span>
-              </div>
-              <div id="ca-rows">${rowsMarkup}</div>
-            </div>
-          </div>
+          ${renderNoticePanel(state)}
+          ${renderBillScannerPanel(state)}
+          ${renderWhatsappPanel(reminders)}
+          ${renderCaPortal(state)}
         </div>
       </div>
     </section>

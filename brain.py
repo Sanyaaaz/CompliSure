@@ -2,9 +2,11 @@ import asyncio
 import base64
 import json
 import os
+import subprocess
+import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -43,14 +45,14 @@ SANDBOX_API_SECRET = os.getenv("SANDBOX_API_SECRET", "")
 SANDBOX_API_VERSION = os.getenv("SANDBOX_API_VERSION", "1.0")
 BRAIN_HOST = os.getenv("BRAIN_HOST", "127.0.0.1")
 BRAIN_PORT = int(os.getenv("BRAIN_PORT", "8000"))
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-GEMINI_BASE_URL = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/")
 
 AUTH_ENDPOINT = f"{SANDBOX_BASE_URL}/authenticate"
 AADHAAR_OTP_ENDPOINT = f"{SANDBOX_BASE_URL}/kyc/aadhaar/okyc/otp"
 AADHAAR_VERIFY_ENDPOINT = f"{SANDBOX_BASE_URL}/kyc/aadhaar/okyc/otp/verify"
-GEMINI_GENERATE_CONTENT_ENDPOINT = f"{GEMINI_BASE_URL}/models/{GEMINI_MODEL}:generateContent"
+GROQ_CHAT_COMPLETIONS_ENDPOINT = f"{GROQ_BASE_URL}/chat/completions"
 
 app = FastAPI(title="CompliSure Brain")
 auth_lock = asyncio.Lock()
@@ -82,30 +84,51 @@ class BillScanRequest(BaseModel):
     image_base64: str
 
 
+class NoticeInterpretRequest(BaseModel):
+    text: str = ""
+    file_name: str = ""
+    mime_type: str = ""
+    file_base64: str = ""
+    company_name: str = ""
+    founder_name: str = ""
+
+
+class NoticeChatRequest(BaseModel):
+    question: str
+    interpretation: dict[str, Any] = Field(default_factory=dict)
+    history: list[dict[str, Any]] = Field(default_factory=list)
+    source_text: str = ""
+    company_name: str = ""
+    founder_name: str = ""
+
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
     return {
         "configured": bool(SANDBOX_API_KEY and SANDBOX_API_SECRET),
         "base_url": SANDBOX_BASE_URL,
-        "geminiConfigured": bool(GEMINI_API_KEY),
+        "groqConfigured": bool(GROQ_API_KEY),
+        "invoiceModel": GROQ_MODEL,
     }
 
 
 @app.post("/bills/scan")
 async def scan_bill(payload: BillScanRequest) -> dict[str, Any]:
-    ensure_gemini_configured()
+    ensure_groq_configured()
 
-    if payload.mime_type not in {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}:
-        raise HTTPException(status_code=400, detail="Only JPEG, PNG, WEBP, and HEIC bill images are supported.")
+    if payload.mime_type not in {"application/pdf", "image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic", "image/heif"}:
+        raise HTTPException(status_code=400, detail="Only PDF, JPEG, PNG, WEBP, and HEIC bill files are supported.")
 
     try:
-        base64.b64decode(payload.image_base64, validate=True)
+        raw_file = base64.b64decode(payload.image_base64, validate=True)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail="Uploaded bill image is not valid base64.") from exc
+        raise HTTPException(status_code=400, detail="Uploaded bill file is not valid base64.") from exc
+
+    image_data_url = build_groq_input_data_url(raw_file, payload.mime_type, payload.file_name)
 
     prompt = """
 You are an expert accounting operations assistant for Indian SMEs.
-Read this bill or invoice image and extract normalized bookkeeping data.
+Read this bill, invoice, receipt, or PDF document and extract normalized bookkeeping data.
 
 Return JSON only with this shape:
 {
@@ -148,94 +171,184 @@ Rules:
 """.strip()
 
     request_body = {
-        "contents": [
+        "model": GROQ_MODEL,
+        "messages": [
             {
-                "parts": [
-                    {"text": prompt},
+                "role": "system",
+                "content": "You extract structured bookkeeping data from invoices and bills. Return JSON only."
+            },
+            {
+                "role": "user",
+                "content": [
                     {
-                        "inline_data": {
-                            "mime_type": payload.mime_type,
-                            "data": payload.image_base64,
-                        }
+                        "type": "text",
+                        "text": prompt,
                     },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": image_data_url,
+                        }
+                    }
                 ]
             }
         ],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "temperature": 0.2,
-            "responseJsonSchema": {
-                "type": "object",
-                "properties": {
-                    "document_type": {"type": "string"},
-                    "vendor_name": {"type": "string"},
-                    "invoice_number": {"type": "string"},
-                    "invoice_date": {"type": "string"},
-                    "due_date": {"type": "string"},
-                    "currency": {"type": "string"},
-                    "subtotal": {"type": "number"},
-                    "tax_amount": {"type": "number"},
-                    "cgst_amount": {"type": "number"},
-                    "sgst_amount": {"type": "number"},
-                    "igst_amount": {"type": "number"},
-                    "total_amount": {"type": "number"},
-                    "payment_method": {"type": "string"},
-                    "gstin": {"type": "string"},
-                    "category": {"type": "string"},
-                    "notes": {"type": "string"},
-                    "confidence": {"type": "number"},
-                    "line_items": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "description": {"type": "string"},
-                                "quantity": {"type": "number"},
-                                "unit_price": {"type": "number"},
-                                "amount": {"type": "number"},
-                                "tax_rate": {"type": "number"},
-                                "tax_amount": {"type": "number"},
-                                "category": {"type": "string"}
-                            }
-                        }
-                    }
-                },
-                "required": ["document_type", "vendor_name", "currency", "total_amount", "line_items"]
-            },
+        "response_format": {
+            "type": "json_object"
         },
+        "temperature": 0.2,
+        "max_completion_tokens": 1200,
     }
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
-            GEMINI_GENERATE_CONTENT_ENDPOINT,
+            GROQ_CHAT_COMPLETIONS_ENDPOINT,
             headers={
                 "Content-Type": "application/json",
-                "x-goog-api-key": GEMINI_API_KEY,
+                "Authorization": f"Bearer {GROQ_API_KEY}",
             },
             json=request_body,
         )
 
     provider_data = parse_provider_response(response)
     if response.status_code >= 400:
-        raise HTTPException(status_code=response.status_code, detail=extract_message(provider_data, "Failed to scan bill with Gemini."))
+        raise HTTPException(status_code=response.status_code, detail=extract_message(provider_data, "Failed to scan bill with Groq."))
 
-    raw_text = pick(provider_data, [
-        "candidates.0.content.parts.0.text",
-        "candidates.0.content.parts.1.text",
-    ])
+    raw_text = extract_groq_message_text(provider_data)
     if not raw_text:
-        raise HTTPException(status_code=502, detail="Gemini response did not contain extracted bill data.")
+        raise HTTPException(status_code=502, detail="Groq response did not contain extracted bill data.")
 
     try:
         extracted = json.loads(clean_json_text(str(raw_text)))
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=502, detail="Gemini returned an invalid JSON extraction for the bill.") from exc
+        raise HTTPException(status_code=502, detail="Groq returned an invalid JSON extraction for the bill.") from exc
 
     normalized = normalize_bill_document(extracted, payload.file_name, payload.mime_type)
     return {
         "success": True,
         "document": normalized,
         "message": f"{normalized['vendorName'] or payload.file_name} scanned and stored in the ledger.",
+    }
+
+
+@app.post("/notices/interpret")
+async def interpret_notice(payload: NoticeInterpretRequest) -> dict[str, Any]:
+    ensure_groq_configured()
+
+    notice_text = safe_string(payload.text).strip()
+    has_file = bool(payload.file_base64 and payload.file_name)
+
+    if not notice_text and not has_file:
+        raise HTTPException(status_code=400, detail="Provide notice text or upload a PDF/image notice.")
+
+    user_content: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": build_notice_interpretation_prompt(payload.company_name, payload.founder_name),
+        }
+    ]
+
+    if notice_text:
+        user_content.append({
+            "type": "text",
+            "text": f"Notice text:\n{notice_text}",
+        })
+
+    if has_file:
+        mime_type = safe_string(payload.mime_type).lower()
+        if mime_type not in {"application/pdf", "image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic", "image/heif"}:
+            raise HTTPException(status_code=400, detail="Only PDF, JPEG, PNG, WEBP, and HEIC notice files are supported.")
+
+        try:
+            raw_file = base64.b64decode(payload.file_base64, validate=True)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Uploaded notice file is not valid base64.") from exc
+
+        user_content.append({
+            "type": "image_url",
+            "image_url": {
+                "url": build_groq_input_data_url(raw_file, mime_type, payload.file_name),
+            }
+        })
+
+    extracted = await groq_json_completion([
+        {
+            "role": "system",
+            "content": "You are CompliSure's regulatory notice analyst for Indian businesses. Return JSON only."
+        },
+        {
+            "role": "user",
+            "content": user_content,
+        }
+    ], max_completion_tokens=1600)
+
+    interpretation = normalize_notice_interpretation(extracted)
+    return {
+        "success": True,
+        "interpretation": interpretation,
+        "message": "Notice interpreted successfully. Ask follow-up questions below for business impact and next steps."
+    }
+
+
+@app.post("/notices/chat")
+async def chat_about_notice(payload: NoticeChatRequest) -> dict[str, Any]:
+    ensure_groq_configured()
+
+    question = safe_string(payload.question).strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Enter a follow-up question about the notice.")
+
+    if not isinstance(payload.interpretation, dict) or not payload.interpretation:
+        raise HTTPException(status_code=400, detail="Interpret a notice first before starting a follow-up chat.")
+
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "system",
+            "content": (
+                "You are CompliSure's follow-up notice assistant for Indian businesses. "
+                "Answer in plain English, explain the business effect clearly, stay grounded in the provided context, "
+                "and never invent facts that are not visible in the notice. Return JSON only."
+            )
+        },
+        {
+            "role": "user",
+            "content": build_notice_chat_context(
+                interpretation=payload.interpretation,
+                source_text=payload.source_text,
+                company_name=payload.company_name,
+                founder_name=payload.founder_name
+            )
+        }
+    ]
+
+    for item in payload.history:
+        role = safe_string(item.get("role")).lower()
+        if role not in {"user", "assistant"}:
+            continue
+        content = safe_string(item.get("content")).strip()
+        if not content:
+            continue
+        messages.append({
+            "role": role,
+            "content": content
+        })
+
+    messages.append({
+        "role": "user",
+        "content": (
+            "Answer this follow-up question about the notice and how it affects the business. "
+            "Return JSON with keys answer, business_impact, next_steps, and caution.\n"
+            f"Question: {question}"
+        )
+    })
+
+    response = await groq_json_completion(messages, max_completion_tokens=1000)
+    return {
+        "success": True,
+        "answer": safe_string(response.get("answer")),
+        "businessImpact": safe_string(response.get("business_impact")),
+        "nextSteps": normalize_string_list(response.get("next_steps")),
+        "caution": safe_string(response.get("caution")),
     }
 
 
@@ -375,10 +488,10 @@ def ensure_configured() -> None:
     raise HTTPException(status_code=500, detail="Sandbox credentials are missing. Add SANDBOX_API_KEY and SANDBOX_API_SECRET.")
 
 
-def ensure_gemini_configured() -> None:
-    if GEMINI_API_KEY:
+def ensure_groq_configured() -> None:
+    if GROQ_API_KEY:
         return
-    raise HTTPException(status_code=500, detail="Gemini is not configured. Add GEMINI_API_KEY to .env.")
+    raise HTTPException(status_code=500, detail="Groq is not configured. Add GROQ_API_KEY to .env.")
 
 
 def parse_provider_response(response: httpx.Response) -> dict[str, Any]:
@@ -389,7 +502,7 @@ def parse_provider_response(response: httpx.Response) -> dict[str, Any]:
 
 
 def extract_message(data: dict[str, Any], fallback: str) -> str:
-    value = pick(data, ["data.message", "message", "error", "detail", "raw"])
+    value = pick(data, ["data.message", "message", "error.message", "error", "detail", "raw"])
     return safe_string(value) or fallback
 
 
@@ -439,6 +552,240 @@ def clean_json_text(value: str) -> str:
         cleaned = cleaned.strip("`")
         cleaned = cleaned.replace("json", "", 1).strip()
     return cleaned
+
+
+async def groq_json_completion(messages: list[dict[str, Any]], max_completion_tokens: int = 1200) -> dict[str, Any]:
+    request_body = {
+        "model": GROQ_MODEL,
+        "messages": messages,
+        "response_format": {
+            "type": "json_object"
+        },
+        "temperature": 0.2,
+        "max_completion_tokens": max_completion_tokens,
+    }
+
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        response = await client.post(
+            GROQ_CHAT_COMPLETIONS_ENDPOINT,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+            },
+            json=request_body,
+        )
+
+    provider_data = parse_provider_response(response)
+    if response.status_code >= 400:
+        raise HTTPException(status_code=response.status_code, detail=extract_message(provider_data, "Groq request failed."))
+
+    raw_text = extract_groq_message_text(provider_data)
+    if not raw_text:
+        raise HTTPException(status_code=502, detail="Groq response did not contain JSON content.")
+
+    try:
+        return json.loads(clean_json_text(raw_text))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail="Groq returned invalid JSON.") from exc
+
+
+def extract_groq_message_text(data: dict[str, Any]) -> str:
+    content = pick(data, ["choices.0.message.content"])
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            item.get("text", "")
+            for item in content
+            if isinstance(item, dict)
+        )
+    return ""
+
+
+def build_groq_input_data_url(file_bytes: bytes, mime_type: str, file_name: str) -> str:
+    normalized_bytes, normalized_mime = prepare_visual_input(file_bytes, mime_type, file_name)
+    encoded = base64.b64encode(normalized_bytes).decode("utf-8")
+    return f"data:{normalized_mime};base64,{encoded}"
+
+
+def prepare_visual_input(file_bytes: bytes, mime_type: str, file_name: str) -> tuple[bytes, str]:
+    extension = suffix_for_mime(mime_type, file_name)
+
+    with tempfile.TemporaryDirectory(prefix="complisure-bill-") as temp_dir:
+        temp_path = Path(temp_dir)
+        source_path = temp_path / f"source{extension}"
+        source_path.write_bytes(file_bytes)
+
+        converted_bytes = convert_with_sips(source_path, temp_path / "normalized.jpg")
+        if converted_bytes is not None:
+            return converted_bytes, "image/jpeg"
+
+        if mime_type == "application/pdf":
+            preview_bytes = convert_pdf_with_quicklook(source_path, temp_path)
+            if preview_bytes is not None:
+                return preview_bytes, "image/jpeg"
+
+    raise HTTPException(
+        status_code=500,
+        detail="Could not prepare the uploaded document for Groq analysis. Try a clearer PDF or PNG/JPG image."
+    )
+
+
+def convert_with_sips(source_path: Path, output_path: Path) -> Optional[bytes]:
+    command = [
+        "/usr/bin/sips",
+        "--resampleHeightWidthMax",
+        "2200",
+        "-s",
+        "format",
+        "jpeg",
+        str(source_path),
+        "--out",
+        str(output_path),
+    ]
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode == 0 and output_path.exists():
+        return output_path.read_bytes()
+    return None
+
+
+def convert_pdf_with_quicklook(source_path: Path, temp_path: Path) -> Optional[bytes]:
+    command = [
+        "/usr/bin/qlmanage",
+        "-t",
+        "-s",
+        "2000",
+        "-o",
+        str(temp_path),
+        str(source_path),
+    ]
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+
+    preview_path = temp_path / f"{source_path.name}.png"
+    if not preview_path.exists():
+        return None
+
+    normalized_bytes = convert_with_sips(preview_path, temp_path / "preview.jpg")
+    if normalized_bytes is not None:
+        return normalized_bytes
+    return preview_path.read_bytes()
+
+
+def suffix_for_mime(mime_type: str, file_name: str) -> str:
+    lowered_name = file_name.lower()
+    if mime_type == "application/pdf" or lowered_name.endswith(".pdf"):
+        return ".pdf"
+    if mime_type in {"image/png"} or lowered_name.endswith(".png"):
+        return ".png"
+    if mime_type in {"image/webp"} or lowered_name.endswith(".webp"):
+        return ".webp"
+    if mime_type in {"image/heic"} or lowered_name.endswith(".heic"):
+        return ".heic"
+    if mime_type in {"image/heif"} or lowered_name.endswith(".heif"):
+        return ".heif"
+    return ".jpg"
+
+
+def build_notice_interpretation_prompt(company_name: str, founder_name: str) -> str:
+    business_context = []
+    if company_name:
+        business_context.append(f"Company: {company_name}")
+    if founder_name:
+        business_context.append(f"Founder: {founder_name}")
+
+    context_block = "\n".join(business_context) if business_context else "No extra company context provided."
+    return f"""
+You are analyzing a regulatory or government notice for an Indian business.
+Use the notice text and/or uploaded document to explain what it means and how it affects the business.
+
+Business context:
+{context_block}
+
+Return JSON only with this shape:
+{{
+  "notice_type": string,
+  "authority": string,
+  "summary": string,
+  "plain_english_meaning": string,
+  "why_received": string,
+  "business_impact": string,
+  "financial_exposure": string,
+  "operational_risk": string,
+  "urgency": "low|medium|high|critical",
+  "response_deadline": string,
+  "key_amounts": [string],
+  "key_sections": [string],
+  "required_actions": [string],
+  "immediate_next_steps": [string],
+  "what_happens_if_ignored": [string],
+  "professional_help": string,
+  "confidence": number,
+  "chat_starter": string
+}}
+
+Rules:
+- Do not give legal advice; provide practical business guidance only.
+- If a fact is missing or unreadable, say so clearly instead of guessing.
+- Focus especially on business impact, money exposure, deadlines, and escalation risk.
+- Keep response_deadline empty if not visible.
+- Use a 0 to 1 confidence score.
+""".strip()
+
+
+def build_notice_chat_context(interpretation: dict[str, Any], source_text: str, company_name: str, founder_name: str) -> str:
+    context = {
+        "company_name": company_name,
+        "founder_name": founder_name,
+        "source_text": safe_string(source_text),
+        "interpretation": interpretation,
+    }
+    return (
+        "Use this notice context for all follow-up answers. Stay grounded in it and mention uncertainty when needed.\n"
+        + json.dumps(context, ensure_ascii=True)
+    )
+
+
+def normalize_notice_interpretation(data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "noticeType": safe_string(data.get("notice_type")) or "Regulatory notice",
+        "authority": safe_string(data.get("authority")),
+        "summary": safe_string(data.get("summary")),
+        "plainEnglishMeaning": safe_string(data.get("plain_english_meaning")),
+        "whyReceived": safe_string(data.get("why_received")),
+        "businessImpact": safe_string(data.get("business_impact")),
+        "financialExposure": safe_string(data.get("financial_exposure")),
+        "operationalRisk": safe_string(data.get("operational_risk")),
+        "urgency": normalize_urgency(data.get("urgency")),
+        "responseDeadline": safe_string(data.get("response_deadline")),
+        "keyAmounts": normalize_string_list(data.get("key_amounts")),
+        "keySections": normalize_string_list(data.get("key_sections")),
+        "requiredActions": normalize_string_list(data.get("required_actions")),
+        "immediateNextSteps": normalize_string_list(data.get("immediate_next_steps")),
+        "whatHappensIfIgnored": normalize_string_list(data.get("what_happens_if_ignored")),
+        "professionalHelp": safe_string(data.get("professional_help")),
+        "confidence": min(1.0, max(0.0, safe_number(data.get("confidence")))),
+        "chatStarter": safe_string(data.get("chat_starter")) or "Ask how this affects cash flow, directors, filing timelines, or next steps.",
+    }
+
+
+def normalize_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    normalized: list[str] = []
+    for item in value:
+        text = safe_string(item).strip()
+        if text:
+            normalized.append(text)
+    return normalized
+
+
+def normalize_urgency(value: Any) -> str:
+    urgency = safe_string(value).strip().lower()
+    if urgency in {"low", "medium", "high", "critical"}:
+        return urgency
+    return "medium"
 
 
 def normalize_bill_document(data: dict[str, Any], file_name: str, mime_type: str) -> dict[str, Any]:

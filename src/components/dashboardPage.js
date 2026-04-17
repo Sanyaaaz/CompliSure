@@ -5,6 +5,12 @@ export function renderDashboardPage(state) {
   const aadhaarLast4 = state.auth.aadhaarDigits.slice(-4);
   const verifiedName = state.auth.verificationProfile?.name || state.auth.fullName || "Founder";
   const isDetailsOnlyLogin = Boolean(state.flags?.detailsOnlyLogin);
+  const identityTitle = isDetailsOnlyLogin ? "Access mode" : "Identity verification";
+  const identityValue = isDetailsOnlyLogin
+    ? aadhaarLast4
+      ? `Details-only access •••• ${aadhaarLast4}`
+      : "Details-only access"
+    : `Aadhaar •••• ${aadhaarLast4}`;
   const verificationNote = isDetailsOnlyLogin
     ? "Temporary details-only login mode is active. Aadhaar verification is currently bypassed."
     : state.auth.verificationProfile?.fullAddress
@@ -41,8 +47,8 @@ export function renderDashboardPage(state) {
             <div class="dash-card-sub">Primary operating entity</div>
           </div>
           <div class="dash-card" id="identity">
-            <div class="dash-card-label">Identity verification</div>
-            <div class="dash-card-value">Aadhaar •••• ${aadhaarLast4}</div>
+            <div class="dash-card-label">${identityTitle}</div>
+            <div class="dash-card-value">${identityValue}</div>
             <div class="dash-card-sub">${verificationNote}</div>
           </div>
           <div class="dash-card">

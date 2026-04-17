@@ -1,0 +1,106 @@
+{
+  "documents": [
+    {
+      "id": "bill-488f2c70-d995-4e3a-b32f-69592aa5731a",
+      "scannedAt": "2026-04-17T18:00:30.488Z",
+      "fileName": "invoicee.png",
+      "mimeType": "image/png",
+      "documentType": "invoice",
+      "vendorName": "Zylker Electronics Hub",
+      "invoiceNumber": "INV-000001",
+      "invoiceDate": "2024-08-05",
+      "dueDate": "2024-08-05",
+      "currency": "USD",
+      "subtotal": 2227,
+      "taxAmount": 111.35,
+      "cgstAmount": 0,
+      "sgstAmount": 0,
+      "igstAmount": 0,
+      "totalAmount": 2338.35,
+      "paymentMethod": "",
+      "gstin": "",
+      "category": "General expense",
+      "notes": "",
+      "confidence": 0.9,
+      "lineItems": [
+        {
+          "description": "Camera DSLR camera with advanced shooting capabilities",
+          "quantity": 1,
+          "unitPrice": 899,
+          "amount": 899,
+          "taxRate": 5,
+          "taxAmount": 44.95,
+          "category": "General expense"
+        },
+        {
+          "description": "Fitness Tracker Activity tracker with heart rate monitoring",
+          "quantity": 1,
+          "unitPrice": 129,
+          "amount": 129,
+          "taxRate": 5,
+          "taxAmount": 6.45,
+          "category": "General expense"
+        },
+        {
+          "description": "Laptop Lightweight laptop with a powerful processor",
+          "quantity": 1,
+          "unitPrice": 1199,
+          "amount": 1199,
+          "taxRate": 5,
+          "taxAmount": 59.95,
+          "category": "General expense"
+        }
+      ]
+    }
+  ],
+  "transactions": [
+    {
+      "id": "txn-bill-488f2c70-d995-4e3a-b32f-69592aa5731a-0-140f5249-60aa-49dd-aaf7-2da280214645",
+      "documentId": "bill-488f2c70-d995-4e3a-b32f-69592aa5731a",
+      "invoiceDate": "2024-08-05",
+      "vendorName": "Zylker Electronics Hub",
+      "invoiceNumber": "INV-000001",
+      "description": "Camera DSLR camera with advanced shooting capabilities",
+      "category": "General expense",
+      "quantity": 1,
+      "unitPrice": 899,
+      "baseAmount": 899,
+      "taxAmount": 44.95,
+      "grossAmount": 943.95,
+      "gstin": "",
+      "paymentMethod": ""
+    },
+    {
+      "id": "txn-bill-488f2c70-d995-4e3a-b32f-69592aa5731a-1-85e2d889-f4f6-4baa-879d-1e25bc607d8e",
+      "documentId": "bill-488f2c70-d995-4e3a-b32f-69592aa5731a",
+      "invoiceDate": "2024-08-05",
+      "vendorName": "Zylker Electronics Hub",
+      "invoiceNumber": "INV-000001",
+      "description": "Fitness Tracker Activity tracker with heart rate monitoring",
+      "category": "General expense",
+      "quantity": 1,
+      "unitPrice": 129,
+      "baseAmount": 129,
+      "taxAmount": 6.45,
+      "grossAmount": 135.45,
+      "gstin": "",
+      "paymentMethod": ""
+    },
+    {
+      "id": "txn-bill-488f2c70-d995-4e3a-b32f-69592aa5731a-2-e813f97b-6a83-4f45-b913-c77158d61a8e",
+      "documentId": "bill-488f2c70-d995-4e3a-b32f-69592aa5731a",
+      "invoiceDate": "2024-08-05",
+      "vendorName": "Zylker Electronics Hub",
+      "invoiceNumber": "INV-000001",
+      "description": "Laptop Lightweight laptop with a powerful processor",
+      "category": "General expense",
+      "quantity": 1,
+      "unitPrice": 1199,
+      "baseAmount": 1199,
+      "taxAmount": 59.95,
+      "grossAmount": 1258.95,
+      "gstin": "",
+      "paymentMethod": ""
+    }
+  ]
+}
