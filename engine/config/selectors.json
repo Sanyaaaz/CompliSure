@@ -1,0 +1,12 @@
+{
+  "mca": {
+    "title": ["h1.notification-title", "div.title", ".article-title"],
+    "date": ["span.date", ".publish-date", "time"],
+    "content": ["div.notification-content", "article", ".main-text"]
+  },
+  "gst": {
+    "title": ["h2.gst-update-title", ".update-header"],
+    "date": [".update-date", "span.meta-date"],
+    "content": [".update-body", ".content-wrapper"]
+  }
+}

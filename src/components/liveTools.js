@@ -145,6 +145,39 @@ Example: 'This is to inform that your company M/s ABC Pvt Ltd (CIN: U72200KA2021
   </div>
 `;
 
+const govUpdatesPanel = `
+  <div class="demo-panel" id="tab-gov">
+    <div class="eyebrow" style="margin-bottom:.5rem">Smart Regulatory Engine</div>
+    <h3 style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:var(--text);margin-bottom:1.75rem">Automated government portal monitoring & AI matching</h3>
+    
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:2rem;align-items:start">
+      <div style="display:flex;flex-direction:column;gap:1.5rem;position:sticky;top:20px;">
+        <div class="gov-status-card" style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:1.5rem;">
+          <h4 style="font-size:1rem;color:var(--text);margin-bottom:1rem;font-weight:600;">Background Monitoring</h4>
+          <p style="font-size:12px;color:var(--text2);margin-bottom:1rem;">The Smart Regulatory Engine runs automatically in the background. You can force a manual sync below.</p>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:.75rem">
+            <div class="pulse-dot" style="width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)"></div>
+            <div style="font-size:14px;color:var(--text2)">MCA Portal</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:1.5rem">
+            <div class="pulse-dot" style="width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)"></div>
+            <div style="font-size:14px;color:var(--text2)">GST Portal</div>
+          </div>
+          <button id="trigger-sync-btn" style="width:100%;background:var(--green);color:#000;border:none;padding:10px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.2s">Force Manual Sync</button>
+          <div id="sync-status" style="font-size:12px;color:var(--text3);margin-top:10px;text-align:center;">Next automated sync: 45 mins</div>
+        </div>
+      </div>
+
+      <div class="gov-updates-feed" id="gov-updates-feed" style="display:flex;flex-direction:column;gap:1rem;">
+        <div style="text-align:center;padding:3rem 1rem;color:var(--text3);border:1px dashed var(--border);border-radius:12px;background:var(--bg)">
+          <div style="font-size:2rem;margin-bottom:1rem;">🤖</div>
+          <div style="font-size:14px;">No personalized updates detected yet.<br>Use the simulator to post an update and run a sync.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+`;
+
 function formatCurrency(value, currency = "INR") {
   const amount = Number(value) || 0;
   return new Intl.NumberFormat("en-IN", {
@@ -378,6 +411,7 @@ export function renderLiveTools(state) {
             <div class="demo-tab active" data-tab="onboard">Smart onboarding</div>
             <div class="demo-tab" data-tab="penalty">Penalty calculator</div>
             <div class="demo-tab" data-tab="notice">Notice interpreter</div>
+            <div class="demo-tab" data-tab="gov" style="color:var(--green)">Live Gov Updates</div>
             <div class="demo-tab" data-tab="bills">Bill scanner</div>
             <div class="demo-tab" data-tab="whatsapp">WhatsApp reminders</div>
             <div class="demo-tab" data-tab="ca">CA portal</div>
@@ -385,6 +419,7 @@ export function renderLiveTools(state) {
           ${onboardingPanel}
           ${penaltyPanel}
           ${noticePanel}
+          ${govUpdatesPanel}
           ${renderBillScannerPanel(state)}
           ${whatsappPanel}
           <div class="demo-panel" id="tab-ca">

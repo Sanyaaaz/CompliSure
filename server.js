@@ -1,6 +1,7 @@
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
+const engine = require("./engine"); // Import the new Smart Engine
 
 loadEnv(path.join(process.cwd(), ".env"));
 
@@ -137,6 +138,79 @@ app.post("/api/bills/scan", async (req, res) => {
     console.error("Bill scan proxy error:", error);
     res.status(502).json({ error: "Could not reach the bill scanning service." });
   }
+});
+
+// --- SMART REGULATORY UPDATE ENGINE ENDPOINTS ---
+
+const db = require("./engine/database/mockDb");
+
+app.post("/api/engine/trigger", async (req, res) => {
+  const url = req.body?.url;
+  const sourceName = req.body?.sourceName;
+
+  if (!url || !sourceName) {
+    return res.status(400).json({ error: "url and sourceName are required" });
+  }
+
+  // Trigger asynchronously so we don't block the request if it takes long
+  engine.processSource(url, sourceName)
+    .then(result => console.log("Engine manual trigger completed:", result))
+    .catch(err => console.error("Engine manual trigger failed:", err));
+
+  res.status(202).json({ message: "Engine processing started in background", url, sourceName });
+});
+
+app.post("/api/engine/ca-verify", async (req, res) => {
+  const verificationId = req.body?.verificationId;
+  const action = req.body?.action; // 'approve', 'edit', 'reject'
+  const modifications = req.body?.modifications;
+
+  if (!verificationId || !action) {
+    return res.status(400).json({ error: "verificationId and action are required" });
+  }
+
+  try {
+    const result = await engine.handleCAVerification(verificationId, action, modifications);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.get("/api/engine/updates", async (req, res) => {
+  const recommendations = await db.getRecommendations();
+  res.status(200).json(recommendations);
+});
+
+// --- MOCK GOV PORTAL SIMULATOR ---
+app.post("/api/admin/mock-gov", async (req, res) => {
+  const title = req.body?.title;
+  const content = req.body?.content;
+  if (!title || !content) {
+    return res.status(400).json({ error: "title and content required" });
+  }
+  await db.setMockGovPortal(title, content);
+  res.status(200).json({ message: "Mock Gov portal updated!" });
+});
+
+app.get("/mock-gov-portal", async (req, res) => {
+  const data = await db.getMockGovPortal();
+  
+  // Serve HTML that matches the 'mca' selectors defined in selectors.json
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head><title>Government Notifications</title></head>
+      <body>
+        <h1 class="notification-title">${data.title}</h1>
+        <span class="publish-date">${data.date}</span>
+        <div class="notification-content">
+          ${data.content.split('\n').map(p => `<p>${p}</p>`).join('')}
+        </div>
+      </body>
+    </html>
+  `;
+  res.send(html);
 });
 
 app.get("*", (_req, res) => {

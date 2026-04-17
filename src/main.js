@@ -321,6 +321,7 @@ function bindLiveToolEvents() {
   document.getElementById("interpret-notice-btn")?.addEventListener("click", interpretNotice);
   document.getElementById("bill-upload-input")?.addEventListener("change", handleBillFileSelection);
   document.getElementById("scan-bill-btn")?.addEventListener("click", handleBillScan);
+  document.getElementById("trigger-sync-btn")?.addEventListener("click", handleTriggerSync);
 
   document.querySelectorAll("[data-wa-action]").forEach((button) => {
     button.addEventListener("click", () => handleWhatsappAction(button.dataset.waAction));
@@ -475,6 +476,108 @@ function interpretNotice() {
       <div style="margin-top:1rem;padding:10px 14px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);border-radius:8px;font-size:12px;color:var(--amber)">CompliSure provides general guidance only — not legal advice. Consult your CA or CS before responding to any notice.</div>
     `;
   }, 900);
+}
+
+// Ensure the UI loads existing dynamic updates on first render if there are any
+window.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    fetch('/api/engine/updates')
+      .then(res => res.json())
+      .then(data => {
+        const feed = document.getElementById("gov-updates-feed");
+        if (data && data.length > 0 && feed) {
+          renderDynamicFeed(data, feed);
+        }
+      });
+  }, 1000);
+});
+
+function handleTriggerSync() {
+  const btn = document.getElementById("trigger-sync-btn");
+  const status = document.getElementById("sync-status");
+  const feed = document.getElementById("gov-updates-feed");
+  
+  if (!btn || !feed) return;
+
+  // Visual loading state
+  const originalText = btn.innerHTML;
+  btn.innerHTML = `<span class="loading-dots" style="color:#000"><span></span><span></span><span></span></span> Scanning MCA...`;
+  btn.disabled = true;
+  btn.style.opacity = "0.7";
+  
+  // Actually trigger the backend engine we built via API, pointing to our local mock gov portal
+  const port = window.location.port || '3000';
+  const url = `${window.location.protocol}//${window.location.hostname}:${port}/mock-gov-portal`;
+
+  console.log("%c[CompliSure] 🚀 Triggering AI Engine sync...", "color: #60a5fa; font-weight: bold;", { url, sourceName: "mca" });
+
+  fetch('/api/engine/trigger', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, sourceName: "mca" })
+  })
+    .then(r => r.json())
+    .then(data => console.log("%c[CompliSure] ✅ Engine trigger accepted", "color: #34d399; font-weight: bold;", data))
+    .catch(e => console.error("[CompliSure] ❌ Sync trigger failed:", e));
+
+  // Wait for the background engine to process, then fetch real results
+  console.log("%c[CompliSure] ⏳ Waiting for AI agent to process (up to 15s)...", "color: #fbbf24; font-weight: bold;");
+  setTimeout(() => {
+    fetch('/api/engine/updates')
+      .then(res => res.json())
+      .then(data => {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+        btn.style.opacity = "1";
+        if (status) status.innerHTML = "Last checked: Just now";
+
+        if (data.length === 0) {
+          console.log("%c[CompliSure] ℹ️ No matching updates found for company profiles.", "color: #94a3b8; font-weight: bold;");
+          feed.innerHTML = `
+            <div style="text-align:center;padding:3rem 1rem;color:var(--text3);border:1px dashed var(--border);border-radius:12px;background:var(--bg)">
+              <div style="font-size:2rem;margin-bottom:1rem;">🤖</div>
+              <div style="font-size:14px;">No personalized updates detected. AI processed the portal but found no match for your company profile.</div>
+            </div>`;
+          return;
+        }
+
+        console.log(`%c[CompliSure] 🎯 ${data.length} recommendation(s) generated!`, "color: #34d399; font-weight: bold;", data);
+        renderDynamicFeed(data, feed);
+      })
+      .catch(e => {
+        console.error("[CompliSure] ❌ Failed to fetch updates:", e);
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+        btn.style.opacity = "1";
+      });
+  }, 15000); // Wait 15 seconds for the AI engine to finish in the background
+}
+
+function renderDynamicFeed(data, feed) {
+  feed.innerHTML = data.map(rec => `
+    <div class="gov-update-card" style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:1.5rem;animation: slideDown 0.5s ease-out;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:.5rem">
+        <span style="font-size:11px;font-weight:700;color:var(--amber);background:var(--amber-bg);padding:4px 8px;border-radius:4px;letter-spacing:0.5px">MCA RULE MATCHED</span>
+        <span style="font-size:12px;color:var(--text3)">${new Date(rec.generated_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+      </div>
+      <h4 style="font-size:1.1rem;color:var(--text);margin-bottom:.5rem;font-weight:600;">${rec.update_title}</h4>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:1rem;line-height:1.5">${rec.message}</div>
+      
+      <div style="background:var(--bg);padding:1rem;border-radius:8px;margin-bottom:1rem;border:1px solid var(--border2)">
+        <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px">AI Action Required:</div>
+        <div style="font-size:13px;color:var(--text2);margin-bottom:8px">${rec.action_required}</div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text3)">
+          <span><strong>Deadline:</strong> ${rec.deadline}</span>
+          <span style="color:var(--red)"><strong>Risk:</strong> ${rec.risk}</span>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:1rem;align-items:center;border-top:1px solid var(--border);padding-top:1rem;">
+        <button style="background:var(--bg4);color:var(--text);border:1px solid var(--border);padding:8px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">Routed to CA</button>
+        <span style="font-size:12px;color:var(--text3);">Pending verification by ${rec.company_name} CA</span>
+      </div>
+    </div>
+  `).join('');
 }
 
 function handleWhatsappAction(action) {
