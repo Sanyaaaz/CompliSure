@@ -553,6 +553,7 @@ function buildReminderPayload(overrides = {}) {
 
 function generateCalendar() {
   const type = document.getElementById("co-type")?.value || "";
+  const sector = document.getElementById("co-sector")?.value || "";
   const stateCode = document.getElementById("co-state")?.value || "";
   const employeeBand = document.querySelector("#emp-group .radio-btn.sel")?.dataset.val || "";
   const gst = document.querySelector("#gst-group .radio-btn.sel")?.dataset.val || "none";
@@ -563,6 +564,15 @@ function generateCalendar() {
     return;
   }
 
+  const profile = {
+    type,
+    sector,
+    stateCode,
+    employeeBand,
+    gst,
+    deposits
+  };
+
   let items = [...COMPLIANCE_DB.base];
   if (gst === "regular") items = [...items, ...COMPLIANCE_DB.gst_regular];
   if (gst === "composition") items = [...items, ...COMPLIANCE_DB.gst_composition];
@@ -572,6 +582,7 @@ function generateCalendar() {
   if (deposits === "yes") items = [...items, ...COMPLIANCE_DB.deposits];
   const stateKey = `state_${stateCode}`;
   if (COMPLIANCE_DB[stateKey]) items = [...items, ...COMPLIANCE_DB[stateKey]];
+  const stagedItems = buildStageTimelineCalendar(items, profile);
 
   const itemsContainer = document.getElementById("cal-items");
   const output = document.getElementById("cal-output");
@@ -580,21 +591,195 @@ function generateCalendar() {
 
   if (!itemsContainer || !output || !heading || !summary) return;
 
-  itemsContainer.innerHTML = items.map((item) => `
+  itemsContainer.innerHTML = stagedItems.map((item) => `
     <div class="cal-row">
       <div class="dot dot-${item.urgency}"></div>
       <div class="cal-info">
-        <div class="cal-name">${item.name}${item.dir ? ' <span class="dir-tag">DIR LIABILITY</span>' : ""}</div>
+        <div class="cal-name">${item.stageTag} · ${item.name}${item.dir ? ' <span class="dir-tag">DIR LIABILITY</span>' : ""}</div>
         <div class="cal-dept">${item.dept}</div>
       </div>
-      <div class="cal-due">${item.due}</div>
+      <div class="cal-due">${item.timelineLabel}</div>
       <div class="cal-pen pen-${item.urgency === "g" ? "a" : item.urgency}">${item.pen}</div>
     </div>
   `).join("");
-  heading.textContent = `Your compliance calendar · ${items.length} items personalised`;
-  summary.textContent = `✓ ${items.length} obligations identified for your profile (${type.toUpperCase()} · ${stateCode} · ${employeeBand} employees · GST: ${gst}). Out of 180+ total, only these apply to you.`;
+  const stageCounts = stagedItems.reduce((acc, item) => {
+    acc[item.stageNumber] += 1;
+    return acc;
+  }, { 1: 0, 2: 0, 3: 0 });
+  heading.textContent = `Your compliance calendar · ${stagedItems.length} items personalised`;
+  summary.textContent = `✓ ${stagedItems.length} obligations identified for your profile (${type.toUpperCase()} · ${stateCode} · ${employeeBand} employees · GST: ${gst}). Stages: S1 Foundation ${stageCounts[1]}, S2 Operating ${stageCounts[2]}, S3 Strategic ${stageCounts[3]}.`;
   output.style.display = "block";
   output.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function buildStageTimelineCalendar(items, profile) {
+  const today = todayUtcDate();
+  return items
+    .map((item) => {
+      const stage = predictComplianceStage(item, profile);
+      const timeline = resolveTimeline(item.due, today);
+      return {
+        ...item,
+        stageNumber: stage.number,
+        stageTag: stage.label,
+        stageRank: stage.number,
+        timelineDate: timeline.isoDate,
+        timelineRank: timeline.sortRank,
+        timelineLabel: timeline.label
+      };
+    })
+    .sort((left, right) => {
+      if (left.stageRank !== right.stageRank) {
+        return left.stageRank - right.stageRank;
+      }
+      if (left.timelineRank !== right.timelineRank) {
+        return left.timelineRank - right.timelineRank;
+      }
+      return left.name.localeCompare(right.name);
+    });
+}
+
+function predictComplianceStage(item, profile) {
+  const due = String(item.due || "").toLowerCase();
+  const name = String(item.name || "").toLowerCase();
+  const dept = String(item.dept || "").toLowerCase();
+
+  // Lightweight weighted model for staged rollout of obligations.
+  let stageScore = 0;
+  if (item.urgency === "r") stageScore += 1.6;
+  if (item.urgency === "a") stageScore += 1.2;
+  if (item.dir) stageScore += 1.1;
+  if (due.includes("every month") || due.includes("monthly")) stageScore += 1.2;
+  if (due.includes("within")) stageScore -= 0.6;
+  if (dept.includes("gst") && profile.gst !== "none") stageScore += 1.3;
+  if ((name.includes("pf") || name.includes("esi")) && ["10-19", "20-99", "100+"].includes(profile.employeeBand)) stageScore += 1.2;
+  if (profile.deposits === "yes" && name.includes("dpt-3")) stageScore += 1.5;
+  if (profile.sector === "nbfc" && dept.includes("income tax")) stageScore += 0.6;
+
+  if (stageScore >= 4.1) {
+    return { number: 1, label: "Stage 1: Foundation (0-30d)" };
+  }
+  if (stageScore >= 2.3) {
+    return { number: 2, label: "Stage 2: Operating (30-90d)" };
+  }
+  return { number: 3, label: "Stage 3: Strategic (90d+)" };
+}
+
+function resolveTimeline(rawDue, today) {
+  const dueText = String(rawDue || "").trim();
+  const lowered = dueText.toLowerCase();
+  if (!dueText) {
+    return { label: "Timeline unavailable", isoDate: "", sortRank: Number.MAX_SAFE_INTEGER - 1 };
+  }
+
+  if (lowered.includes("every month") || lowered.includes("monthly")) {
+    const day = pickDayFromDueText(dueText) || 20;
+    const nextDate = nextMonthlyDate(today, day);
+    return {
+      label: `${dueText} · next: ${formatHumanDate(nextDate)} (${daysFromToday(today, nextDate)}d)`,
+      isoDate: nextDate,
+      sortRank: dateToRank(nextDate)
+    };
+  }
+
+  if (lowered.includes("within")) {
+    const offsetDays = extractFirstNumber(dueText) || 30;
+    const target = addDays(today, offsetDays);
+    return {
+      label: `${dueText} · target: ${formatHumanDate(target)} (${offsetDays}d)`,
+      isoDate: target,
+      sortRank: dateToRank(target)
+    };
+  }
+
+  const yearMatch = dueText.match(/(20\d{2})/);
+  const inferredYear = yearMatch ? Number.parseInt(yearMatch[1], 10) : today.getUTCFullYear();
+  const month = extractMonthIndex(dueText);
+  const day = pickDayFromDueText(dueText) || 15;
+
+  if (month >= 0) {
+    let candidate = isoDate(inferredYear, month, day);
+    if (candidate < formatIsoDate(today)) {
+      candidate = isoDate(inferredYear + 1, month, day);
+    }
+    return {
+      label: `${dueText} · est: ${formatHumanDate(candidate)} (${daysFromToday(today, candidate)}d)`,
+      isoDate: candidate,
+      sortRank: dateToRank(candidate)
+    };
+  }
+
+  return { label: `${dueText} · timeline TBD`, isoDate: "", sortRank: Number.MAX_SAFE_INTEGER };
+}
+
+function pickDayFromDueText(value) {
+  const normalized = String(value || "");
+  const match = normalized.match(/\b(\d{1,2})(st|nd|rd|th)?\b/i);
+  if (!match) return null;
+  const parsed = Number.parseInt(match[1], 10);
+  if (parsed < 1 || parsed > 31) return null;
+  return parsed;
+}
+
+function extractMonthIndex(value) {
+  const months = {
+    jan: 0, january: 0,
+    feb: 1, february: 1,
+    mar: 2, march: 2,
+    apr: 3, april: 3,
+    may: 4,
+    jun: 5, june: 5,
+    jul: 6, july: 6,
+    aug: 7, august: 7,
+    sep: 8, sept: 8, september: 8,
+    oct: 9, october: 9,
+    nov: 10, november: 10,
+    dec: 11, december: 11
+  };
+  const lowered = String(value || "").toLowerCase();
+  for (const [name, index] of Object.entries(months)) {
+    if (lowered.includes(name)) return index;
+  }
+  return -1;
+}
+
+function extractFirstNumber(value) {
+  const match = String(value || "").match(/\b(\d+)\b/);
+  if (!match) return null;
+  return Number.parseInt(match[1], 10);
+}
+
+function nextMonthlyDate(today, day) {
+  const safeDay = Math.min(Math.max(day, 1), 28);
+  const year = today.getUTCFullYear();
+  const month = today.getUTCMonth();
+  const todayIso = formatIsoDate(today);
+  let nextDate = isoDate(year, month, safeDay);
+  if (nextDate < todayIso) {
+    nextDate = month === 11 ? isoDate(year + 1, 0, safeDay) : isoDate(year, month + 1, safeDay);
+  }
+  return nextDate;
+}
+
+function isoDate(year, monthIndex, day) {
+  return `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function addDays(date, offsetDays) {
+  const next = new Date(date.getTime());
+  next.setUTCDate(next.getUTCDate() + offsetDays);
+  return formatIsoDate(next);
+}
+
+function daysFromToday(today, iso) {
+  const target = parseIsoDate(iso);
+  if (!target) return "n/a";
+  return daysBetweenUtc(today, target);
+}
+
+function dateToRank(iso) {
+  const date = parseIsoDate(iso);
+  return date ? date.getTime() : Number.MAX_SAFE_INTEGER;
 }
 
 function calculatePenalty() {
@@ -862,6 +1047,9 @@ async function handleAddCaRow() {
   try {
     const response = await postJson("/api/ca/rows/upsert", {
       ...buildCaWorkspaceQuery(),
+      ownerEmail: state.reminders.ownerEmail,
+      caName: state.reminders.caName || "Linked CA",
+      caEmail: state.reminders.caEmail,
       row: {
         client: form.client,
         filing: form.filing,
@@ -875,7 +1063,13 @@ async function handleAddCaRow() {
     state.caPortal.form = createDefaultCaPortalState().form;
     state.caPortal.saving = false;
     state.caPortal.error = false;
-    state.caPortal.message = response.message || "CA filing added.";
+    if (response.reminder?.sent) {
+      state.caPortal.message = `${response.message || "CA filing added."} Channels: ${(response.reminder.channels || []).join(" + ")}.`;
+    } else if (response.reminder?.skipped) {
+      state.caPortal.message = `${response.message || "CA filing added."} Reminder skipped: ${response.reminder.reason || "Configure recipient emails."}`;
+    } else {
+      state.caPortal.message = response.message || "CA filing added.";
+    }
     renderApp();
   } catch (error) {
     state.caPortal.saving = false;
@@ -1326,4 +1520,38 @@ async function fetchJson(url) {
 
 function scrollToId(id) {
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function parseIsoDate(value) {
+  const raw = String(value || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const [year, month, day] = raw.split("-").map((part) => Number.parseInt(part, 10));
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(date.getTime())) return null;
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return date;
+}
+
+function daysBetweenUtc(fromDate, toDate) {
+  return Math.round((toDate.getTime() - fromDate.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+function todayUtcDate() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+function formatIsoDate(date) {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+function formatHumanDate(value) {
+  const date = parseIsoDate(value);
+  if (!date) return "";
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC"
+  }).format(date);
 }

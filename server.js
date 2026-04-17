@@ -29,7 +29,8 @@ const BILL_SCAN_ALLOWED_MIME_TYPES = new Set([
   "image/heic",
   "image/heif"
 ]);
-const CA_VECTOR_SIZE = 8;
+const DEFAULT_CA_VECTOR_SIZE = 8;
+let caVectorSize = DEFAULT_CA_VECTOR_SIZE;
 
 const MS_IN_DAY = 24 * 60 * 60 * 1000;
 const REMINDER_SCHEDULE = {
@@ -359,23 +360,34 @@ app.post("/api/ca/rows/upsert", async (req, res) => {
       fullName: safeString(req.body?.fullName)
     });
     const row = normalizeCaRow(req.body?.row);
+    const isNewObligation = !row.id;
     if (!row.client || !row.filing || !row.dept || !row.dueDate) {
       res.status(400).json({ error: "Client, filing, department, and due date are required." });
       return;
     }
 
-    const point = buildCaPoint(row, workspaceKey);
     await ensureCaCollection();
+    const point = buildCaPoint(row, workspaceKey);
     await qdrantRequest("PUT", `/collections/${encodeURIComponent(QDRANT_CA_COLLECTION)}/points?wait=true`, {
       points: [point]
     });
 
     const rows = await readCaRows(workspaceKey);
+    const storedRow = rows.find((item) => item.id === point.id) || caRowFromPayload(point.payload, point.id);
+    const reminderResult = isNewObligation
+      ? await autoDispatchReminderForNewObligation(storedRow, req.body)
+      : null;
+
     res.status(200).json({
       success: true,
       rows,
-      row: rows.find((item) => item.id === point.id) || caRowFromPayload(point.payload, point.id),
-      message: row.id ? "CA portal filing updated." : "New CA filing added."
+      row: storedRow,
+      reminder: reminderResult,
+      message: row.id
+        ? "CA portal filing updated."
+        : reminderResult?.sent
+          ? `New CA filing added and ${reminderResult.triggerLabel.toLowerCase()} reminder dispatched.`
+          : "New CA filing added."
     });
   } catch (error) {
     console.error("CA row upsert error:", error);
@@ -414,6 +426,123 @@ app.post("/api/ca/rows/mark-all-filed", async (req, res) => {
   } catch (error) {
     console.error("CA mark-all-filed error:", error);
     res.status(502).json({ error: error.message || "Could not update all CA portal rows." });
+  }
+});
+
+app.get("/api/reminders/status", (_req, res) => {
+  res.status(200).json({
+    success: true,
+    resendConfigured: Boolean(RESEND_API_KEY),
+    dryRunEnabled: REMINDER_ALLOW_DRY_RUN
+  });
+});
+
+app.post("/api/reminders/dispatch", async (req, res) => {
+  try {
+    const payload = normalizeReminderPayload(req.body);
+    if (!payload.obligationName || !payload.dueDate) {
+      res.status(400).json({ error: "Obligation and due date are required." });
+      return;
+    }
+
+    const scheduleEntry = REMINDER_SCHEDULE[payload.trigger];
+    if (!scheduleEntry) {
+      res.status(400).json({ error: "Unsupported reminder trigger." });
+      return;
+    }
+
+    const result = await dispatchReminder({
+      payload,
+      scheduleEntry,
+      source: "manual_dispatch"
+    });
+
+    const obligationKey = buildObligationKey(payload);
+    reminderStatusByObligation.set(obligationKey, {
+      trigger: result.trigger,
+      triggerLabel: result.triggerLabel,
+      channels: result.channels,
+      lastDispatchedAt: new Date().toISOString(),
+      recipients: result.recipients
+    });
+    reminderDispatchHistory.add(`${obligationKey}::${result.trigger}`);
+
+    res.status(200).json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    console.error("Reminder dispatch error:", error);
+    res.status(502).json({ error: error.message || "Could not dispatch reminder." });
+  }
+});
+
+app.post("/api/reminders/action", async (req, res) => {
+  try {
+    const payload = normalizeReminderPayload(req.body);
+    const action = safeString(req.body?.action).trim().toLowerCase();
+    const scheduleEntry = REMINDER_SCHEDULE[payload.trigger] || REMINDER_SCHEDULE.event_new_obligation;
+
+    if (!["filed", "remind", "penalty"].includes(action)) {
+      res.status(400).json({ error: "Unsupported reminder action." });
+      return;
+    }
+
+    if (action === "filed") {
+      res.status(200).json({
+        success: true,
+        message: `Marked ${payload.obligationName || "obligation"} as filed. The reminder thread is now resolved.`
+      });
+      return;
+    }
+
+    if (action === "penalty") {
+      res.status(200).json({
+        success: true,
+        message: `Penalty view opened for ${payload.obligationName || "this filing"}.`,
+        penaltyUrl: `${APP_BASE_URL}/#tab-penalty`
+      });
+      return;
+    }
+
+    const recipients = buildActionRecipients(payload, scheduleEntry.recipientMode);
+    if (!recipients.length) {
+      res.status(400).json({ error: "Owner/CA email is missing. Add recipient emails first." });
+      return;
+    }
+
+    const dueDateLabel = formatHumanDate(payload.dueDate) || "Not specified";
+    const subject = `Reminder: ${payload.obligationName || "Compliance obligation"} needs attention`;
+    const html = `
+      <p>Hello,</p>
+      <p>This is a follow-up reminder for <strong>${escapeHtml(payload.obligationName || "the obligation")}</strong>.</p>
+      <p>Company: ${escapeHtml(payload.companyName || "CompliSure Account")}</p>
+      <p>Due date: ${escapeHtml(dueDateLabel)}</p>
+      <p><a href="${escapeHtml(`${APP_BASE_URL}/#tools`)}">Open CompliSure dashboard</a></p>
+    `;
+    const text = [
+      `Reminder: ${payload.obligationName || "Compliance obligation"}`,
+      `Company: ${payload.companyName || "CompliSure Account"}`,
+      `Due date: ${dueDateLabel}`,
+      `Open dashboard: ${APP_BASE_URL}/#tools`
+    ].join("\n");
+
+    const emailResults = await sendActionEmails({
+      recipients,
+      subject,
+      html,
+      text
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Reminder sent to ${emailResults.length} recipient${emailResults.length === 1 ? "" : "s"}.`,
+      channels: scheduleEntry.channels,
+      emailResults
+    });
+  } catch (error) {
+    console.error("Reminder action error:", error);
+    res.status(502).json({ error: error.message || "Could not complete reminder action." });
   }
 });
 
@@ -556,7 +685,8 @@ async function ensureCaCollection() {
   ensureQdrantConfigured();
 
   try {
-    await qdrantRequest("GET", `/collections/${encodeURIComponent(QDRANT_CA_COLLECTION)}`);
+    const existing = await qdrantRequest("GET", `/collections/${encodeURIComponent(QDRANT_CA_COLLECTION)}`);
+    caVectorSize = inferCollectionVectorSize(existing) || caVectorSize;
     return;
   } catch (error) {
     if (error.statusCode && error.statusCode !== 404) {
@@ -566,7 +696,7 @@ async function ensureCaCollection() {
 
   await qdrantRequest("PUT", `/collections/${encodeURIComponent(QDRANT_CA_COLLECTION)}`, {
     vectors: {
-      size: CA_VECTOR_SIZE,
+      size: caVectorSize,
       distance: "Cosine"
     }
   });
@@ -613,6 +743,7 @@ async function seedDefaultCaRows(workspaceKey) {
 function buildCaPoint(row, workspaceKey) {
   const normalized = normalizeCaRow(row);
   const id = normalized.id || createId("ca");
+  const pointId = toQdrantPointId(id);
   const payload = {
     id,
     workspaceKey,
@@ -628,9 +759,9 @@ function buildCaPoint(row, workspaceKey) {
   };
 
   return {
-    id,
+    id: pointId,
     payload,
-    vector: buildDeterministicVector(`${workspaceKey}|${payload.client}|${payload.filing}|${payload.dept}|${payload.dueDate}|${payload.status}`)
+    vector: buildDeterministicVector(`${workspaceKey}|${payload.id}|${payload.client}|${payload.filing}|${payload.dept}|${payload.dueDate}|${payload.status}`)
   };
 }
 
@@ -720,13 +851,32 @@ function sortCaRows(left, right) {
 function buildDeterministicVector(text) {
   const digest = createHash("sha256").update(text).digest();
   const vector = [];
+  const size = Number.isInteger(caVectorSize) && caVectorSize > 0 ? caVectorSize : DEFAULT_CA_VECTOR_SIZE;
 
-  for (let index = 0; index < CA_VECTOR_SIZE; index += 1) {
+  for (let index = 0; index < size; index += 1) {
     const raw = digest[index] / 255;
     vector.push(Number(((raw * 2) - 1).toFixed(6)));
   }
 
   return vector;
+}
+
+function inferCollectionVectorSize(collectionResponse) {
+  const vectorsConfig = collectionResponse?.result?.config?.params?.vectors;
+  if (!vectorsConfig) return null;
+
+  if (typeof vectorsConfig === "object" && Number.isInteger(vectorsConfig.size)) {
+    return vectorsConfig.size;
+  }
+
+  if (typeof vectorsConfig === "object") {
+    const namedVector = Object.values(vectorsConfig).find((entry) => Number.isInteger(entry?.size));
+    if (namedVector) {
+      return namedVector.size;
+    }
+  }
+
+  return null;
 }
 
 function normalizeIsoDate(value) {
@@ -786,6 +936,19 @@ function safeString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
 
+function toQdrantPointId(value) {
+  const raw = safeString(value).trim();
+  if (!raw) return randomUUID();
+  if (isUuid(raw)) return raw.toLowerCase();
+
+  const uuidSuffix = raw.match(/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i);
+  if (uuidSuffix && isUuid(uuidSuffix[1])) {
+    return uuidSuffix[1].toLowerCase();
+  }
+
+  return randomUUID();
+}
+
 function normalizeReminderPayload(value) {
   return {
     trigger: safeString(value?.trigger || "7_days_before"),
@@ -798,6 +961,80 @@ function normalizeReminderPayload(value) {
     caName: safeString(value?.caName),
     caEmail: normalizeEmail(value?.caEmail)
   };
+}
+
+async function autoDispatchReminderForNewObligation(row, body) {
+  const reminderPayload = normalizeReminderPayload({
+    trigger: pickTriggerForDueDate(row?.dueDate),
+    obligationId: row?.id,
+    obligationName: row?.filing,
+    dueDate: row?.dueDate,
+    companyName: safeString(body?.companyName) || row?.client || "CompliSure Account",
+    ownerName: safeString(body?.fullName) || "Owner",
+    ownerEmail: body?.ownerEmail,
+    caName: safeString(body?.caName) || "Linked CA",
+    caEmail: body?.caEmail
+  });
+  const scheduleEntry = REMINDER_SCHEDULE[reminderPayload.trigger] || REMINDER_SCHEDULE.event_new_obligation;
+
+  const recipients = buildActionRecipients(reminderPayload, scheduleEntry.recipientMode);
+  if (scheduleEntry.sendsEmail && !recipients.length) {
+    return {
+      sent: false,
+      skipped: true,
+      reason: "Recipient emails missing for trigger.",
+      trigger: reminderPayload.trigger,
+      triggerLabel: scheduleEntry.label,
+      channels: scheduleEntry.channels
+    };
+  }
+
+  try {
+    const result = await dispatchReminder({
+      payload: reminderPayload,
+      scheduleEntry,
+      source: "auto_on_new_obligation"
+    });
+
+    const obligationKey = buildObligationKey(reminderPayload);
+    reminderStatusByObligation.set(obligationKey, {
+      trigger: result.trigger,
+      triggerLabel: result.triggerLabel,
+      channels: result.channels,
+      lastDispatchedAt: new Date().toISOString(),
+      recipients: result.recipients
+    });
+    reminderDispatchHistory.add(`${obligationKey}::${result.trigger}`);
+
+    return {
+      sent: true,
+      skipped: false,
+      ...result
+    };
+  } catch (error) {
+    console.error("Auto reminder dispatch failed:", error);
+    return {
+      sent: false,
+      skipped: true,
+      reason: error.message || "Reminder dispatch failed.",
+      trigger: reminderPayload.trigger,
+      triggerLabel: scheduleEntry.label,
+      channels: scheduleEntry.channels
+    };
+  }
+}
+
+function pickTriggerForDueDate(dueDate) {
+  const due = parseIsoDate(safeString(dueDate));
+  if (!due) return "event_new_obligation";
+  const today = todayUtcDate();
+  const delta = daysBetweenUtc(today, due);
+  if (delta < 0) return "1_day_after_due";
+  if (delta === 0) return "due_date";
+  if (delta <= 3) return "3_days_before";
+  if (delta <= 7) return "7_days_before";
+  if (delta <= 30) return "30_days_before";
+  return "event_new_obligation";
 }
 
 async function dispatchReminder({ payload, scheduleEntry, source }) {
@@ -999,6 +1236,10 @@ function isValidEmail(value) {
 function isLikelyResendApiKey(value) {
   const token = safeString(value).trim();
   return token.startsWith("re_") && token.length >= 12;
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(safeString(value).trim());
 }
 
 function escapeHtml(value) {
