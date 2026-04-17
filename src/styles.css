@@ -109,6 +109,51 @@ section{padding:7rem 2rem}
 .dash-card-sub{font-size:12px;color:var(--text2);margin-top:.45rem;line-height:1.6}
 .dash-health-wrap{margin-top:1.25rem;width:100%}
 
+/* Weekly summary widget */
+.ws-card{margin-top:1.25rem;width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:1.35rem 1.25rem 1.5rem;text-align:left}
+.ws-card--empty{border-style:dashed}
+.ws-head{display:flex;flex-wrap:wrap;gap:1rem;justify-content:space-between;align-items:flex-start;margin-bottom:1rem}
+.ws-eyebrow{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--text3);margin-bottom:.35rem}
+.ws-title{font-family:'Syne',sans-serif;font-size:1.2rem;font-weight:800;color:var(--text);margin:0 0 .35rem;letter-spacing:-0.3px}
+.ws-sub{font-size:12.5px;color:var(--text2);line-height:1.55;margin:0;max-width:52rem}
+.ws-profile{color:var(--text3)}
+.ws-stat-pill{display:flex;flex-direction:column;align-items:flex-end;gap:2px;padding:10px 14px;border-radius:14px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.22)}
+.ws-stat-val{font-family:'Syne',sans-serif;font-size:1.75rem;font-weight:800;color:var(--green);line-height:1}
+.ws-stat-lab{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.45px;color:var(--text3)}
+.ws-empty{font-size:13px;color:var(--text2);line-height:1.65;margin:0;max-width:40rem}
+.ws-empty strong{color:var(--text)}
+.ws-week-grid{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}
+.ws-day{flex:0 0 118px;min-width:104px;scroll-snap-align:start;border:1px solid var(--border);border-radius:14px;background:var(--bg2);overflow:hidden;display:flex;flex-direction:column}
+.ws-day--today{border-color:rgba(34,197,94,.45);box-shadow:0 0 0 1px rgba(34,197,94,.12)}
+.ws-day-head{display:flex;flex-direction:column;align-items:center;padding:8px 6px;background:var(--bg3);border-bottom:1px solid var(--border)}
+.ws-day-wd{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--text3)}
+.ws-day-num{font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;color:var(--text)}
+.ws-day-body{padding:8px 6px 10px;flex:1;display:flex;flex-direction:column;gap:8px;min-height:72px}
+.ws-day-empty{font-size:11px;color:var(--text3);text-align:center;padding:.5rem 0}
+.ws-task{display:flex;gap:6px;align-items:flex-start;padding:6px 6px;border-radius:10px;border:1px solid var(--border);background:var(--bg3)}
+.ws-task--risk{border-color:rgba(239,68,68,.28);background:rgba(239,68,68,.06)}
+.ws-task--soon{border-color:rgba(245,158,11,.3);background:var(--amber-bg)}
+.ws-task--ok{border-color:rgba(34,197,94,.22);background:rgba(34,197,94,.05)}
+.ws-task-pill{flex-shrink:0;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;padding:2px 5px;border-radius:4px;line-height:1.2}
+.ws-task-pill--cal{background:rgba(59,130,246,.12);color:#60a5fa}
+.ws-task-pill--ca{background:rgba(168,85,247,.12);color:#c084fc}
+.ws-task-body{min-width:0}
+.ws-task-name{font-size:11px;font-weight:700;color:var(--text);line-height:1.35;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.ws-task-meta{font-size:10px;color:var(--text3);line-height:1.35;margin-top:2px}
+.ws-attention{margin-top:1rem;padding:12px 14px;border-radius:14px;border:1px dashed rgba(239,68,68,.35);background:rgba(239,68,68,.05)}
+.ws-attention-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--red);margin-bottom:8px}
+.ws-attention-list{margin:0;padding-left:1.1rem;font-size:12.5px;color:var(--text2);line-height:1.55}
+.ws-attention-list li{margin-bottom:6px}
+.ws-attention-pill{font-size:9px;font-weight:800;padding:1px 6px;border-radius:4px;margin-right:6px}
+.ws-attention-pill--cal{background:rgba(59,130,246,.15);color:#60a5fa}
+.ws-attention-pill--ca{background:rgba(168,85,247,.15);color:#c084fc}
+.ws-muted{color:var(--text3);font-weight:400}
+
+@media (min-width:1100px){
+  .ws-week-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;overflow:visible;padding-bottom:0}
+  .ws-day{min-width:0;flex:none}
+}
+
 .nav-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--red);color:#fff;font-size:10px;font-weight:800;line-height:1;vertical-align:middle}
 .policy-radar-section{padding-top:4rem;padding-bottom:4rem}
 .policy-radar-hero{display:flex;flex-wrap:wrap;gap:1.5rem;justify-content:space-between;align-items:flex-start;margin-bottom:1.25rem}

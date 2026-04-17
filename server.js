@@ -2,6 +2,16 @@ const express = require("express");
 const path = require("path");
 const fs = require("fs");
 const { createHash, randomUUID } = require("crypto");
+const {
+  wrapQdrantPayload,
+  unwrapQdrantPayload,
+  resolveQdrantCollection,
+  billLedgerFilePath,
+  encryptFilePayload,
+  decryptFilePayload,
+  isMultiTenantQdrant,
+  isEncryptionEnabled
+} = require("./server/tenantCrypto");
 
 loadEnv(path.join(process.cwd(), ".env"));
 
@@ -22,7 +32,8 @@ const RESEND_BASE_URL = (safeString(process.env.RESEND_BASE_URL) || "https://api
 const REMINDER_ALLOW_DRY_RUN = safeString(process.env.REMINDER_ALLOW_DRY_RUN).toLowerCase() === "true";
 const APP_BASE_URL = safeString(process.env.APP_BASE_URL) || `http://${HOST}:${PORT}`;
 const STORAGE_DIR = path.join(ROOT_DIR, "storage");
-const BILL_LEDGER_PATH = path.join(STORAGE_DIR, "bill-workspace.json");
+/** Per-collection vector sizes (tenant-scoped collection names). */
+const vectorSizeByCollection = new Map();
 const BILL_SCAN_ALLOWED_MIME_TYPES = new Set([
   "application/pdf",
   "image/jpeg",
@@ -199,10 +210,14 @@ app.post("/api/aadhaar/verify", async (req, res) => {
   }
 });
 
-app.get("/api/bills", (_req, res) => {
+app.get("/api/bills", (req, res) => {
+  const workspaceKey = buildCaWorkspaceKey({
+    companyName: safeString(req.query?.companyName),
+    fullName: safeString(req.query?.fullName)
+  });
   res.status(200).json({
     success: true,
-    workspace: readBillWorkspace()
+    workspace: readBillWorkspace(workspaceKey)
   });
 });
 
@@ -227,6 +242,11 @@ app.post("/api/bills/scan", async (req, res) => {
   }
 
   try {
+    const workspaceKey = buildCaWorkspaceKey({
+      companyName: safeString(req.body?.companyName),
+      fullName: safeString(req.body?.fullName)
+    });
+
     const response = await fetch(`${BRAIN_SERVICE_URL}/bills/scan`, {
       method: "POST",
       headers: {
@@ -247,10 +267,10 @@ app.post("/api/bills/scan", async (req, res) => {
 
     const document = buildStoredBillDocument(payload.document);
     const transactions = buildTransactionsFromDocument(document);
-    const workspace = readBillWorkspace();
+    const workspace = readBillWorkspace(workspaceKey);
     workspace.documents = [document, ...workspace.documents];
     workspace.transactions = [...transactions, ...workspace.transactions];
-    writeBillWorkspace(workspace);
+    writeBillWorkspace(workspace, workspaceKey);
 
     res.status(200).json({
       success: true,
@@ -523,9 +543,10 @@ app.post("/api/ca/rows/upsert", async (req, res) => {
       return;
     }
 
-    await ensureCaCollection();
-    const point = buildCaPoint(row, workspaceKey);
-    await qdrantRequest("PUT", `/collections/${encodeURIComponent(QDRANT_CA_COLLECTION)}/points?wait=true`, {
+    const vecSize = await ensureCaCollection(workspaceKey);
+    const collectionName = resolveQdrantCollection(QDRANT_CA_COLLECTION, workspaceKey);
+    const point = buildCaPoint(row, workspaceKey, vecSize);
+    await qdrantRequest("PUT", `/collections/${encodeURIComponent(collectionName)}/points?wait=true`, {
       points: [point]
     });
 
@@ -564,13 +585,14 @@ app.post("/api/ca/rows/mark-all-filed", async (req, res) => {
       return;
     }
 
-    await ensureCaCollection();
+    const vecSize = await ensureCaCollection(workspaceKey);
+    const collectionName = resolveQdrantCollection(QDRANT_CA_COLLECTION, workspaceKey);
     const points = rows.map((row) => buildCaPoint({
       ...row,
       status: "filed"
-    }, workspaceKey));
+    }, workspaceKey, vecSize));
 
-    await qdrantRequest("PUT", `/collections/${encodeURIComponent(QDRANT_CA_COLLECTION)}/points?wait=true`, {
+    await qdrantRequest("PUT", `/collections/${encodeURIComponent(collectionName)}/points?wait=true`, {
       points
     });
 
@@ -710,6 +732,12 @@ app.get("*", (_req, res) => {
 app.listen(PORT, HOST, () => {
   console.log(`CompliSure listening on http://${HOST}:${PORT}`);
   console.log(`Proxying Aadhaar requests to ${BRAIN_SERVICE_URL}`);
+  if (!isEncryptionEnabled()) {
+    console.warn("COMPLISURE_ENCRYPTION_KEY not set: Qdrant payloads and bill ledgers are stored unencrypted.");
+  }
+  console.log(
+    `Multi-tenant Qdrant: ${isMultiTenantQdrant() ? "per-workspace collections" : "legacy shared collections"}`
+  );
 });
 
 async function readJsonResponse(response) {
@@ -727,14 +755,16 @@ function normalizeDigits(value) {
   return safeString(value).replace(/\D/g, "");
 }
 
-function readBillWorkspace() {
+function readBillWorkspace(workspaceKey) {
   try {
-    if (!fs.existsSync(BILL_LEDGER_PATH)) {
+    const filePath = billLedgerFilePath(STORAGE_DIR, workspaceKey);
+    if (!fs.existsSync(filePath)) {
       return createEmptyBillWorkspace();
     }
 
-    const raw = fs.readFileSync(BILL_LEDGER_PATH, "utf8");
-    const parsed = raw ? JSON.parse(raw) : {};
+    const raw = fs.readFileSync(filePath, "utf8");
+    const jsonStr = decryptFilePayload(raw);
+    const parsed = jsonStr ? JSON.parse(jsonStr) : {};
     return {
       documents: Array.isArray(parsed.documents) ? parsed.documents : [],
       transactions: Array.isArray(parsed.transactions) ? parsed.transactions : []
@@ -745,12 +775,19 @@ function readBillWorkspace() {
   }
 }
 
-function writeBillWorkspace(workspace) {
-  fs.mkdirSync(STORAGE_DIR, { recursive: true });
-  fs.writeFileSync(BILL_LEDGER_PATH, JSON.stringify({
+function writeBillWorkspace(workspace, workspaceKey) {
+  const filePath = billLedgerFilePath(STORAGE_DIR, workspaceKey);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const jsonStr = JSON.stringify({
     documents: Array.isArray(workspace.documents) ? workspace.documents : [],
     transactions: Array.isArray(workspace.transactions) ? workspace.transactions : []
-  }, null, 2));
+  }, null, 2);
+  const enc = encryptFilePayload(jsonStr);
+  if (enc.plain) {
+    fs.writeFileSync(filePath, enc.body);
+  } else {
+    fs.writeFileSync(filePath, JSON.stringify({ plain: false, body: enc.body }, null, 2));
+  }
 }
 
 function createEmptyBillWorkspace() {
@@ -838,110 +875,141 @@ function toNumber(value) {
   return Number(value) || 0;
 }
 
-async function ensureCaCollection() {
+async function ensureCaCollection(workspaceKey) {
+  const collectionName = resolveQdrantCollection(QDRANT_CA_COLLECTION, workspaceKey);
+  if (vectorSizeByCollection.has(collectionName)) {
+    return vectorSizeByCollection.get(collectionName);
+  }
   ensureQdrantConfigured();
 
   try {
-    const existing = await qdrantRequest("GET", `/collections/${encodeURIComponent(QDRANT_CA_COLLECTION)}`);
-    caVectorSize = inferCollectionVectorSize(existing) || caVectorSize;
-    return;
+    const existing = await qdrantRequest("GET", `/collections/${encodeURIComponent(collectionName)}`);
+    const size = inferCollectionVectorSize(existing) || caVectorSize;
+    vectorSizeByCollection.set(collectionName, size);
+    return size;
   } catch (error) {
     if (error.statusCode && error.statusCode !== 404) {
       throw error;
     }
   }
 
-  await qdrantRequest("PUT", `/collections/${encodeURIComponent(QDRANT_CA_COLLECTION)}`, {
+  const size = DEFAULT_CA_VECTOR_SIZE;
+  await qdrantRequest("PUT", `/collections/${encodeURIComponent(collectionName)}`, {
     vectors: {
-      size: caVectorSize,
+      size,
       distance: "Cosine"
     }
   });
+  vectorSizeByCollection.set(collectionName, size);
+  return size;
 }
 
-async function ensureOnboardingCollection() {
+async function ensureOnboardingCollection(workspaceKey) {
+  const collectionName = resolveQdrantCollection(QDRANT_ONBOARDING_COLLECTION, workspaceKey);
+  if (vectorSizeByCollection.has(collectionName)) {
+    return vectorSizeByCollection.get(collectionName);
+  }
   ensureQdrantConfigured();
 
   try {
-    const existing = await qdrantRequest("GET", `/collections/${encodeURIComponent(QDRANT_ONBOARDING_COLLECTION)}`);
-    onboardingVectorSize = inferCollectionVectorSize(existing) || onboardingVectorSize;
-    return;
+    const existing = await qdrantRequest("GET", `/collections/${encodeURIComponent(collectionName)}`);
+    const size = inferCollectionVectorSize(existing) || onboardingVectorSize;
+    vectorSizeByCollection.set(collectionName, size);
+    return size;
   } catch (error) {
     if (error.statusCode && error.statusCode !== 404) {
       throw error;
     }
   }
 
-  await qdrantRequest("PUT", `/collections/${encodeURIComponent(QDRANT_ONBOARDING_COLLECTION)}`, {
+  const size = DEFAULT_ONBOARDING_VECTOR_SIZE;
+  await qdrantRequest("PUT", `/collections/${encodeURIComponent(collectionName)}`, {
     vectors: {
-      size: onboardingVectorSize,
+      size,
       distance: "Cosine"
     }
   });
+  vectorSizeByCollection.set(collectionName, size);
+  return size;
 }
 
 async function upsertOnboardingProfile(workspaceKey, profile) {
-  await ensureOnboardingCollection();
+  const vecSize = await ensureOnboardingCollection(workspaceKey);
+  const collectionName = resolveQdrantCollection(QDRANT_ONBOARDING_COLLECTION, workspaceKey);
   const normalized = normalizeOnboardingProfile(profile);
-  const payload = {
+  const plainPayload = {
     workspaceKey,
     profile: normalized,
     updatedAt: new Date().toISOString()
   };
+  const payload = wrapQdrantPayload(plainPayload);
   const point = {
     id: buildDeterministicUuid(`onboarding|${workspaceKey}`),
     payload,
-    vector: buildDeterministicVector(`onboarding|${workspaceKey}|${JSON.stringify(normalized)}`, onboardingVectorSize)
+    vector: buildDeterministicVector(`onboarding|${workspaceKey}|${JSON.stringify(normalized)}`, vecSize)
   };
 
-  await qdrantRequest("PUT", `/collections/${encodeURIComponent(QDRANT_ONBOARDING_COLLECTION)}/points?wait=true`, {
+  await qdrantRequest("PUT", `/collections/${encodeURIComponent(collectionName)}/points?wait=true`, {
     points: [point]
   });
 }
 
 async function readOnboardingProfile(workspaceKey) {
-  await ensureOnboardingCollection();
-
-  const response = await qdrantRequest("POST", `/collections/${encodeURIComponent(QDRANT_ONBOARDING_COLLECTION)}/points/scroll`, {
-    limit: 1,
-    with_payload: true,
-    with_vector: false,
-    filter: {
-      must: [
-        {
-          key: "workspaceKey",
-          match: {
-            value: workspaceKey
-          }
+  await ensureOnboardingCollection(workspaceKey);
+  const collectionName = resolveQdrantCollection(QDRANT_ONBOARDING_COLLECTION, workspaceKey);
+  const scrollBody = isMultiTenantQdrant()
+    ? { limit: 1, with_payload: true, with_vector: false }
+    : {
+        limit: 1,
+        with_payload: true,
+        with_vector: false,
+        filter: {
+          must: [
+            {
+              key: "workspaceKey",
+              match: {
+                value: workspaceKey
+              }
+            }
+          ]
         }
-      ]
-    }
-  });
+      };
+
+  const response = await qdrantRequest("POST", `/collections/${encodeURIComponent(collectionName)}/points/scroll`, scrollBody);
 
   const points = Array.isArray(response?.result?.points) ? response.result.points : [];
-  const payload = points[0]?.payload || {};
-  return normalizeOnboardingProfile(payload.profile || {});
+  const rawPayload = points[0]?.payload || {};
+  const unwrapped = unwrapQdrantPayload(rawPayload);
+  return normalizeOnboardingProfile(unwrapped?.profile || {});
 }
 
-async function ensureBusinessContextCollection() {
+async function ensureBusinessContextCollection(workspaceKey) {
+  const collectionName = resolveQdrantCollection(QDRANT_BUSINESS_CONTEXT_COLLECTION, workspaceKey);
+  if (vectorSizeByCollection.has(collectionName)) {
+    return vectorSizeByCollection.get(collectionName);
+  }
   ensureQdrantConfigured();
 
   try {
-    const existing = await qdrantRequest("GET", `/collections/${encodeURIComponent(QDRANT_BUSINESS_CONTEXT_COLLECTION)}`);
-    businessContextVectorSize = inferCollectionVectorSize(existing) || businessContextVectorSize;
-    return;
+    const existing = await qdrantRequest("GET", `/collections/${encodeURIComponent(collectionName)}`);
+    const size = inferCollectionVectorSize(existing) || businessContextVectorSize;
+    vectorSizeByCollection.set(collectionName, size);
+    return size;
   } catch (error) {
     if (error.statusCode && error.statusCode !== 404) {
       throw error;
     }
   }
 
-  await qdrantRequest("PUT", `/collections/${encodeURIComponent(QDRANT_BUSINESS_CONTEXT_COLLECTION)}`, {
+  const size = DEFAULT_BUSINESS_CONTEXT_VECTOR_SIZE;
+  await qdrantRequest("PUT", `/collections/${encodeURIComponent(collectionName)}`, {
     vectors: {
-      size: businessContextVectorSize,
+      size,
       distance: "Cosine"
     }
   });
+  vectorSizeByCollection.set(collectionName, size);
+  return size;
 }
 
 function normalizeBusinessSnapshot(raw) {
@@ -1004,47 +1072,55 @@ function buildBusinessSnapshotEmbeddingText(snapshot) {
 }
 
 async function upsertBusinessContextSnapshot(workspaceKey, snapshot) {
-  await ensureBusinessContextCollection();
+  const vecSize = await ensureBusinessContextCollection(workspaceKey);
+  const collectionName = resolveQdrantCollection(QDRANT_BUSINESS_CONTEXT_COLLECTION, workspaceKey);
   const normalized = normalizeBusinessSnapshot({ ...snapshot, updatedAt: new Date().toISOString() });
-  const payload = {
+  const plainPayload = {
     workspaceKey,
     kind: "business_context_v1",
     snapshot: normalized,
     updatedAt: normalized.updatedAt
   };
+  const payload = wrapQdrantPayload(plainPayload);
   const embedText = buildBusinessSnapshotEmbeddingText(normalized);
   const point = {
     id: buildDeterministicUuid(`business-context|${workspaceKey}`),
     payload,
-    vector: buildDeterministicVector(`${workspaceKey}|${embedText}`, businessContextVectorSize)
+    vector: buildDeterministicVector(`${workspaceKey}|${embedText}`, vecSize)
   };
 
-  await qdrantRequest("PUT", `/collections/${encodeURIComponent(QDRANT_BUSINESS_CONTEXT_COLLECTION)}/points?wait=true`, {
+  await qdrantRequest("PUT", `/collections/${encodeURIComponent(collectionName)}/points?wait=true`, {
     points: [point]
   });
 }
 
 async function readBusinessContextSnapshot(workspaceKey) {
-  await ensureBusinessContextCollection();
-
-  const response = await qdrantRequest("POST", `/collections/${encodeURIComponent(QDRANT_BUSINESS_CONTEXT_COLLECTION)}/points/scroll`, {
-    limit: 1,
-    with_payload: true,
-    with_vector: false,
-    filter: {
-      must: [
-        {
-          key: "workspaceKey",
-          match: {
-            value: workspaceKey
-          }
+  await ensureBusinessContextCollection(workspaceKey);
+  const collectionName = resolveQdrantCollection(QDRANT_BUSINESS_CONTEXT_COLLECTION, workspaceKey);
+  const scrollBody = isMultiTenantQdrant()
+    ? { limit: 1, with_payload: true, with_vector: false }
+    : {
+        limit: 1,
+        with_payload: true,
+        with_vector: false,
+        filter: {
+          must: [
+            {
+              key: "workspaceKey",
+              match: {
+                value: workspaceKey
+              }
+            }
+          ]
         }
-      ]
-    }
-  });
+      };
+
+  const response = await qdrantRequest("POST", `/collections/${encodeURIComponent(collectionName)}/points/scroll`, scrollBody);
 
   const points = Array.isArray(response?.result?.points) ? response.result.points : [];
-  const snap = points[0]?.payload?.snapshot;
+  const rawPayload = points[0]?.payload || {};
+  const unwrapped = unwrapQdrantPayload(rawPayload);
+  const snap = unwrapped?.snapshot;
   if (!snap || typeof snap !== "object") {
     return {};
   }
@@ -1086,23 +1162,27 @@ function summarizeCaRowsForPolicy(rows) {
 }
 
 async function readCaRows(workspaceKey) {
-  await ensureCaCollection();
-
-  const response = await qdrantRequest("POST", `/collections/${encodeURIComponent(QDRANT_CA_COLLECTION)}/points/scroll`, {
-    limit: 200,
-    with_payload: true,
-    with_vector: false,
-    filter: {
-      must: [
-        {
-          key: "workspaceKey",
-          match: {
-            value: workspaceKey
-          }
+  await ensureCaCollection(workspaceKey);
+  const collectionName = resolveQdrantCollection(QDRANT_CA_COLLECTION, workspaceKey);
+  const scrollBody = isMultiTenantQdrant()
+    ? { limit: 200, with_payload: true, with_vector: false }
+    : {
+        limit: 200,
+        with_payload: true,
+        with_vector: false,
+        filter: {
+          must: [
+            {
+              key: "workspaceKey",
+              match: {
+                value: workspaceKey
+              }
+            }
+          ]
         }
-      ]
-    }
-  });
+      };
+
+  const response = await qdrantRequest("POST", `/collections/${encodeURIComponent(collectionName)}/points/scroll`, scrollBody);
 
   const points = Array.isArray(response?.result?.points) ? response.result.points : [];
   return points
@@ -1111,10 +1191,11 @@ async function readCaRows(workspaceKey) {
 }
 
 async function seedDefaultCaRows(workspaceKey) {
-  await ensureCaCollection();
+  const vecSize = await ensureCaCollection(workspaceKey);
+  const collectionName = resolveQdrantCollection(QDRANT_CA_COLLECTION, workspaceKey);
 
-  const points = DEFAULT_CA_ROWS.map((row) => buildCaPoint(normalizeCaRow(row), workspaceKey));
-  await qdrantRequest("PUT", `/collections/${encodeURIComponent(QDRANT_CA_COLLECTION)}/points?wait=true`, {
+  const points = DEFAULT_CA_ROWS.map((row) => buildCaPoint(normalizeCaRow(row), workspaceKey, vecSize));
+  await qdrantRequest("PUT", `/collections/${encodeURIComponent(collectionName)}/points?wait=true`, {
     points
   });
 
@@ -1123,11 +1204,11 @@ async function seedDefaultCaRows(workspaceKey) {
     .sort(sortCaRows);
 }
 
-function buildCaPoint(row, workspaceKey) {
+function buildCaPoint(row, workspaceKey, vectorSize) {
   const normalized = normalizeCaRow(row);
   const id = normalized.id || createId("ca");
   const pointId = toQdrantPointId(id);
-  const payload = {
+  const plainPayload = {
     id,
     workspaceKey,
     client: normalized.client,
@@ -1140,16 +1221,40 @@ function buildCaPoint(row, workspaceKey) {
     createdAt: normalized.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
+  const payload = wrapQdrantPayload(plainPayload);
+  const size =
+    Number.isInteger(vectorSize) && vectorSize > 0
+      ? vectorSize
+      : Number.isInteger(caVectorSize) && caVectorSize > 0
+        ? caVectorSize
+        : DEFAULT_CA_VECTOR_SIZE;
 
   return {
     id: pointId,
     payload,
-    vector: buildDeterministicVector(`${workspaceKey}|${payload.id}|${payload.client}|${payload.filing}|${payload.dept}|${payload.dueDate}|${payload.status}`)
+    vector: buildDeterministicVector(
+      `${workspaceKey}|${plainPayload.id}|${plainPayload.client}|${plainPayload.filing}|${plainPayload.dept}|${plainPayload.dueDate}|${plainPayload.status}`,
+      size
+    )
   };
 }
 
 function caRowFromPayload(payload, id) {
-  const normalized = payload || {};
+  const normalized = unwrapQdrantPayload(payload) || {};
+  if (!normalized || typeof normalized !== "object") {
+    return {
+      id: safeString(id),
+      client: "",
+      filing: "",
+      dept: "",
+      dueDate: "",
+      due: "Date not set",
+      dueTone: "amber",
+      status: "pending",
+      createdAt: "",
+      updatedAt: ""
+    };
+  }
   return {
     id: safeString(id || normalized.id),
     client: safeString(normalized.client),

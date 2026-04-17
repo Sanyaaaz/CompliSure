@@ -1,5 +1,6 @@
 import { renderLiveTools } from "./liveTools.js";
 import { renderFooter } from "./sections.js";
+import { computeWeeklySummary, renderWeeklySummaryWidgetHtml } from "../weeklySummary.js";
 
 export function renderDashboardPage(state) {
   const digits = String(state.auth?.aadhaarDigits ?? "");
@@ -97,6 +98,13 @@ export function renderDashboardPage(state) {
         </div>`
     : "";
 
+  const weeklySummary = computeWeeklySummary({
+    onboardingProfile: state.onboardingProfile,
+    calendarItems: state.onboardingCalendar?.items || [],
+    caRows: state.caRows || []
+  });
+  const weeklySummaryMarkup = renderWeeklySummaryWidgetHtml(weeklySummary);
+
   const policyListMarkup = policyAlerts.length
     ? policyAlerts.map((a) => {
       const isNew = a.id && !seen.has(a.id);
@@ -147,6 +155,7 @@ export function renderDashboardPage(state) {
         <a class="logo" href="#">Compli<span>Sure</span></a>
         <ul class="nav-links">
           <li><a href="#overview">Overview</a></li>
+          <li><a href="#weekly-summary">This week</a></li>
           <li><a href="#policy-radar">Policy radar${policyNewCount ? ` <span class="nav-badge">${policyNewCount}</span>` : ""}</a></li>
           <li><a href="#tools">Live tools</a></li>
           <li><a href="#identity">Identity</a></li>
@@ -177,6 +186,7 @@ export function renderDashboardPage(state) {
           </div>
         </div>
         <div class="dash-health-wrap" id="dash-health-wrap"></div>
+        ${weeklySummaryMarkup}
       </section>
 
       <section class="policy-radar-section" id="policy-radar">

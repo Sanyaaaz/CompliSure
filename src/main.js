@@ -1787,7 +1787,11 @@ async function handleBillScan() {
 
   try {
     const upload = await readFileAsUpload(file);
-    const response = await postJson("/api/bills/scan", upload);
+    const response = await postJson("/api/bills/scan", {
+      ...upload,
+      companyName: state.auth.companyName || "",
+      fullName: state.auth.fullName || ""
+    });
     state.billWorkspace.documents = Array.isArray(response.workspace?.documents) ? response.workspace.documents : state.billWorkspace.documents;
     state.billWorkspace.transactions = Array.isArray(response.workspace?.transactions) ? response.workspace.transactions : state.billWorkspace.transactions;
     state.billWorkspace.scanLoading = false;
@@ -1956,6 +1960,13 @@ function buildTransactionsFromDocument(document) {
   }));
 }
 
+function billWorkspaceQueryString() {
+  return new URLSearchParams({
+    companyName: state.auth.companyName || "",
+    fullName: state.auth.fullName || ""
+  }).toString();
+}
+
 async function hydrateBillWorkspaceFromServer() {
   if (state.billWorkspace.hydrated || state.billWorkspace.hydrating) {
     return;
@@ -1964,7 +1975,7 @@ async function hydrateBillWorkspaceFromServer() {
   state.billWorkspace.hydrating = true;
 
   try {
-    const response = await fetchJson("/api/bills");
+    const response = await fetchJson(`/api/bills?${billWorkspaceQueryString()}`);
     const serverWorkspace = createDefaultBillWorkspace(response.workspace || {});
     const shouldUseServerData = serverWorkspace.documents.length > 0 || serverWorkspace.transactions.length > 0 || state.billWorkspace.documents.length === 0;
 
