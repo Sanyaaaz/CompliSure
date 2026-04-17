@@ -875,9 +875,30 @@ function toNumber(value) {
   return Number(value) || 0;
 }
 
+/**
+ * Qdrant requires a keyword payload index on `workspaceKey` before scroll/filter can use it
+ * (legacy shared collections). Safe to create on tenant-scoped collections too.
+ */
+async function ensureWorkspaceKeyPayloadIndex(collectionName) {
+  try {
+    await qdrantRequest("PUT", `/collections/${encodeURIComponent(collectionName)}/index?wait=true`, {
+      field_name: "workspaceKey",
+      field_schema: "keyword"
+    });
+  } catch (error) {
+    const msg = String(error.message || "");
+    const code = error.statusCode;
+    if (code === 409 || /already exists|already exist|duplicate|Conflict/i.test(msg)) {
+      return;
+    }
+    console.warn(`Qdrant workspaceKey index on ${collectionName}:`, msg);
+  }
+}
+
 async function ensureCaCollection(workspaceKey) {
   const collectionName = resolveQdrantCollection(QDRANT_CA_COLLECTION, workspaceKey);
   if (vectorSizeByCollection.has(collectionName)) {
+    await ensureWorkspaceKeyPayloadIndex(collectionName);
     return vectorSizeByCollection.get(collectionName);
   }
   ensureQdrantConfigured();
@@ -886,6 +907,7 @@ async function ensureCaCollection(workspaceKey) {
     const existing = await qdrantRequest("GET", `/collections/${encodeURIComponent(collectionName)}`);
     const size = inferCollectionVectorSize(existing) || caVectorSize;
     vectorSizeByCollection.set(collectionName, size);
+    await ensureWorkspaceKeyPayloadIndex(collectionName);
     return size;
   } catch (error) {
     if (error.statusCode && error.statusCode !== 404) {
@@ -901,12 +923,14 @@ async function ensureCaCollection(workspaceKey) {
     }
   });
   vectorSizeByCollection.set(collectionName, size);
+  await ensureWorkspaceKeyPayloadIndex(collectionName);
   return size;
 }
 
 async function ensureOnboardingCollection(workspaceKey) {
   const collectionName = resolveQdrantCollection(QDRANT_ONBOARDING_COLLECTION, workspaceKey);
   if (vectorSizeByCollection.has(collectionName)) {
+    await ensureWorkspaceKeyPayloadIndex(collectionName);
     return vectorSizeByCollection.get(collectionName);
   }
   ensureQdrantConfigured();
@@ -915,6 +939,7 @@ async function ensureOnboardingCollection(workspaceKey) {
     const existing = await qdrantRequest("GET", `/collections/${encodeURIComponent(collectionName)}`);
     const size = inferCollectionVectorSize(existing) || onboardingVectorSize;
     vectorSizeByCollection.set(collectionName, size);
+    await ensureWorkspaceKeyPayloadIndex(collectionName);
     return size;
   } catch (error) {
     if (error.statusCode && error.statusCode !== 404) {
@@ -930,6 +955,7 @@ async function ensureOnboardingCollection(workspaceKey) {
     }
   });
   vectorSizeByCollection.set(collectionName, size);
+  await ensureWorkspaceKeyPayloadIndex(collectionName);
   return size;
 }
 
@@ -986,6 +1012,7 @@ async function readOnboardingProfile(workspaceKey) {
 async function ensureBusinessContextCollection(workspaceKey) {
   const collectionName = resolveQdrantCollection(QDRANT_BUSINESS_CONTEXT_COLLECTION, workspaceKey);
   if (vectorSizeByCollection.has(collectionName)) {
+    await ensureWorkspaceKeyPayloadIndex(collectionName);
     return vectorSizeByCollection.get(collectionName);
   }
   ensureQdrantConfigured();
@@ -994,6 +1021,7 @@ async function ensureBusinessContextCollection(workspaceKey) {
     const existing = await qdrantRequest("GET", `/collections/${encodeURIComponent(collectionName)}`);
     const size = inferCollectionVectorSize(existing) || businessContextVectorSize;
     vectorSizeByCollection.set(collectionName, size);
+    await ensureWorkspaceKeyPayloadIndex(collectionName);
     return size;
   } catch (error) {
     if (error.statusCode && error.statusCode !== 404) {
@@ -1009,6 +1037,7 @@ async function ensureBusinessContextCollection(workspaceKey) {
     }
   });
   vectorSizeByCollection.set(collectionName, size);
+  await ensureWorkspaceKeyPayloadIndex(collectionName);
   return size;
 }
 
