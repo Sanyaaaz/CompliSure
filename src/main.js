@@ -23,12 +23,34 @@ function createDefaultAuthState() {
   };
 }
 
+function createDefaultReminderState(savedAuth, savedReminderProfile) {
+  const today = new Date();
+  const defaultDueDate = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const fallback = {
+    ownerEmail: "",
+    caEmail: "",
+    obligationName: "GSTR-3B - Monthly Return",
+    dueDate: defaultDueDate,
+    trigger: "7_days_before"
+  };
+
+  return {
+    ...fallback,
+    ...(savedReminderProfile || {}),
+    ownerName: savedAuth?.fullName || "",
+    companyName: savedAuth?.companyName || "",
+    caName: "Linked CA"
+  };
+}
+
 const savedSession = readSession();
+const savedReminderProfile = readReminderProfile();
 
 const state = {
   view: savedSession?.verified ? "dashboard" : "landing",
   auth: savedSession ? { ...createDefaultAuthState(), ...savedSession, otpSent: false, otpInput: "", referenceId: "", message: "", messageType: "info", loading: false, loadingStep: "" } : createDefaultAuthState(),
-  caRows: DEFAULT_CA_ROWS.map((row) => ({ ...row }))
+  caRows: DEFAULT_CA_ROWS.map((row) => ({ ...row })),
+  reminders: createDefaultReminderState(savedSession, savedReminderProfile)
 };
 
 renderApp();
@@ -249,6 +271,7 @@ function bindDashboardEvents() {
     state.view = "landing";
     state.auth = createDefaultAuthState();
     state.caRows = DEFAULT_CA_ROWS.map((row) => ({ ...row }));
+    state.reminders = createDefaultReminderState(null, readReminderProfile());
     renderApp();
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
@@ -282,6 +305,7 @@ function bindLiveToolEvents() {
     }
   });
   document.getElementById("interpret-notice-btn")?.addEventListener("click", interpretNotice);
+  bindReminderEvents();
 
   document.querySelectorAll("[data-wa-action]").forEach((button) => {
     button.addEventListener("click", () => handleWhatsappAction(button.dataset.waAction));
@@ -305,6 +329,118 @@ function bindLiveToolEvents() {
     });
     updatePendingCount();
   });
+}
+
+function bindReminderEvents() {
+  state.reminders.ownerName = state.auth.fullName || state.reminders.ownerName || "";
+  state.reminders.companyName = state.auth.companyName || state.reminders.companyName || "";
+
+  const ownerEmailInput = document.getElementById("rem-owner-email");
+  const caEmailInput = document.getElementById("rem-ca-email");
+  const obligationInput = document.getElementById("rem-obligation-name");
+  const dueDateInput = document.getElementById("rem-due-date");
+  const triggerSelect = document.getElementById("rem-trigger-select");
+  const dispatchButton = document.getElementById("dispatch-reminder-btn");
+
+  [ownerEmailInput, caEmailInput, obligationInput, dueDateInput, triggerSelect].forEach((input) => {
+    input?.addEventListener("input", syncReminderFormToState);
+    input?.addEventListener("change", syncReminderFormToState);
+  });
+
+  dispatchButton?.addEventListener("click", dispatchReminderNow);
+  loadReminderStatus();
+}
+
+function syncReminderFormToState() {
+  const ownerEmailField = document.getElementById("rem-owner-email");
+  const caEmailField = document.getElementById("rem-ca-email");
+  const obligationField = document.getElementById("rem-obligation-name");
+  const dueDateField = document.getElementById("rem-due-date");
+  const triggerField = document.getElementById("rem-trigger-select");
+
+  state.reminders.ownerEmail = ownerEmailField ? ownerEmailField.value.trim() : state.reminders.ownerEmail;
+  state.reminders.caEmail = caEmailField ? caEmailField.value.trim() : state.reminders.caEmail;
+  state.reminders.obligationName = obligationField ? obligationField.value.trim() : state.reminders.obligationName;
+  state.reminders.dueDate = dueDateField ? dueDateField.value : state.reminders.dueDate;
+  state.reminders.trigger = triggerField ? triggerField.value : state.reminders.trigger;
+  state.reminders.ownerName = state.auth.fullName || state.reminders.ownerName || "";
+  state.reminders.companyName = state.auth.companyName || state.reminders.companyName || "";
+  persistReminderProfile();
+}
+
+async function loadReminderStatus() {
+  const pill = document.getElementById("reminder-status-pill");
+  if (!pill) return;
+
+  try {
+    const response = await fetch("/api/reminders/status");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `Failed with ${response.status}`);
+
+    if (data.resendConfigured) {
+      pill.textContent = "Resend configured";
+      pill.classList.add("ok");
+      pill.classList.remove("warn");
+      return;
+    }
+
+    if (data.dryRunEnabled) {
+      pill.textContent = "Dry run mode";
+      pill.classList.add("warn");
+      pill.classList.remove("ok");
+      return;
+    }
+
+    pill.textContent = "Resend missing key";
+    pill.classList.add("warn");
+    pill.classList.remove("ok");
+  } catch {
+    pill.textContent = "Status unavailable";
+    pill.classList.add("warn");
+    pill.classList.remove("ok");
+  }
+}
+
+async function dispatchReminderNow() {
+  syncReminderFormToState();
+  const resultBox = document.getElementById("reminder-dispatch-result");
+  if (!resultBox) return;
+
+  if (!state.reminders.obligationName || !state.reminders.dueDate) {
+    resultBox.style.display = "block";
+    resultBox.classList.add("error");
+    resultBox.innerHTML = "Obligation and due date are required.";
+    return;
+  }
+
+  resultBox.style.display = "block";
+  resultBox.classList.remove("error");
+  resultBox.innerHTML = "Dispatching reminder...";
+
+  try {
+    const response = await postJson("/api/reminders/dispatch", buildReminderPayload());
+    const emailCount = Array.isArray(response.emailResults) ? response.emailResults.length : 0;
+    const channels = Array.isArray(response.channels) ? response.channels.join(" + ") : "channels unavailable";
+    resultBox.classList.remove("error");
+    resultBox.innerHTML = `Sent trigger <strong>${response.triggerLabel || state.reminders.trigger}</strong> via ${channels}. Email deliveries: <strong>${emailCount}</strong>.`;
+  } catch (error) {
+    resultBox.classList.add("error");
+    resultBox.innerHTML = error.message || "Could not dispatch reminder.";
+  }
+}
+
+function buildReminderPayload(overrides = {}) {
+  return {
+    trigger: state.reminders.trigger,
+    obligationName: state.reminders.obligationName,
+    dueDate: state.reminders.dueDate,
+    companyName: state.reminders.companyName || state.auth.companyName || "CompliSure Account",
+    ownerName: state.reminders.ownerName || state.auth.fullName || "Owner",
+    ownerEmail: state.reminders.ownerEmail,
+    caName: state.reminders.caName || "Linked CA",
+    caEmail: state.reminders.caEmail,
+    ...overrides
+  };
 }
 
 function generateCalendar() {
@@ -436,18 +572,29 @@ function interpretNotice() {
   }, 900);
 }
 
-function handleWhatsappAction(action) {
+async function handleWhatsappAction(action) {
   const response = document.getElementById("wa-response");
   if (!response) return;
 
-  const messages = {
-    filed: `<div class="wa-bubble sent">✓ Filed<div class="wa-time">Just now</div></div><div class="wa-bubble" style="margin-top:6px">Great! GSTR-3B marked as filed. I've notified your CA and updated your calendar. Your compliance score has been updated.<div class="wa-time">Just now</div></div>`,
-    remind: `<div class="wa-bubble sent">📣 Remind CA<div class="wa-time">Just now</div></div><div class="wa-bubble" style="margin-top:6px">Done! A separate alert has been sent to Rajesh Mehta &amp; Co. If they don't act within 7 days, you'll receive an escalation alert automatically.<div class="wa-time">Just now</div></div>`,
-    penalty: `<div class="wa-bubble sent">📊 See penalty<div class="wa-time">Just now</div></div><div class="wa-bubble" style="margin-top:6px"><strong>GSTR-3B penalty if missed:</strong><br />After due date: ₹50/day<br />After 10 days: ₹500+<br />After 30 days: ₹1,500+<br />Max penalty: ₹5,000 per return<div class="wa-time">Just now</div></div>`
-  };
-
   response.style.display = "block";
-  response.innerHTML = messages[action] || "";
+  response.innerHTML = `<div class="wa-bubble sent">${action}<div class="wa-time">Just now</div></div><div class="wa-bubble" style="margin-top:6px">Processing action...</div>`;
+
+  try {
+    syncReminderFormToState();
+    const payload = buildReminderPayload({ action });
+    const apiResponse = await postJson("/api/reminders/action", payload);
+    const message = apiResponse.message || "Action completed.";
+
+    if (action === "penalty") {
+      const penaltyUrl = apiResponse.penaltyUrl || "#tab-penalty";
+      response.innerHTML = `<div class="wa-bubble sent">See penalty<div class="wa-time">Just now</div></div><div class="wa-bubble" style="margin-top:6px">${message}<br /><a href="${penaltyUrl}" style="color:#86efac" target="_blank" rel="noreferrer">Open calculator</a><div class="wa-time">Just now</div></div>`;
+      return;
+    }
+
+    response.innerHTML = `<div class="wa-bubble sent">${action === "filed" ? "Mark as filed" : "Remind CA"}<div class="wa-time">Just now</div></div><div class="wa-bubble" style="margin-top:6px">${message}<div class="wa-time">Just now</div></div>`;
+  } catch (error) {
+    response.innerHTML = `<div class="wa-bubble sent">${action}<div class="wa-time">Just now</div></div><div class="wa-bubble" style="margin-top:6px;color:#fca5a5">${error.message || "Could not complete action."}<div class="wa-time">Just now</div></div>`;
+  }
 }
 
 function initializeCaStatusStyles() {
@@ -526,6 +673,25 @@ function persistSession() {
 function readSession() {
   try {
     const raw = localStorage.getItem("complisure-session");
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistReminderProfile() {
+  localStorage.setItem("complisure-reminder-profile", JSON.stringify({
+    ownerEmail: state.reminders.ownerEmail,
+    caEmail: state.reminders.caEmail,
+    obligationName: state.reminders.obligationName,
+    dueDate: state.reminders.dueDate,
+    trigger: state.reminders.trigger
+  }));
+}
+
+function readReminderProfile() {
+  try {
+    const raw = localStorage.getItem("complisure-reminder-profile");
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
