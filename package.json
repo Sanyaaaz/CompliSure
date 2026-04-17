@@ -1,5 +1,13 @@
-"scripts": {
-  "dev": "next dev",
-  "build": "next build",
-  "start": "next start"
+{
+  "name": "complisure",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "brain": "python3 brain.py"
+  }
 }
