@@ -1,10 +1,16 @@
+from __future__ import annotations
+
 import asyncio
 import base64
+import hashlib
 import json
 import os
+import re
 import subprocess
 import tempfile
 import time
+import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -102,6 +108,782 @@ class NoticeChatRequest(BaseModel):
     founder_name: str = ""
 
 
+class AssistantChatRequest(BaseModel):
+    question: str
+    company_name: str = ""
+    founder_name: str = ""
+    reminders: dict[str, Any] = Field(default_factory=dict)
+    ca_rows: list[dict[str, Any]] = Field(default_factory=list)
+    onboarding_profile: dict[str, Any] = Field(default_factory=dict)
+
+
+class PolicyWatchRequest(BaseModel):
+    company_name: str = ""
+    founder_name: str = ""
+    onboarding_profile: dict[str, Any] = Field(default_factory=dict)
+    business_context: dict[str, Any] = Field(default_factory=dict)
+
+
+DEFAULT_POLICY_FEEDS: list[dict[str, str]] = [
+    {"name": "RBI — Press releases", "url": "https://www.rbi.org.in/pressreleases_rss.xml"},
+]
+
+
+def local_xml_tag(tag: str) -> str:
+    if "}" in tag:
+        return tag.split("}", 1)[1]
+    return tag
+
+
+def strip_html_tags(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def stable_policy_id(link: str, title: str) -> str:
+    key = f"{link}|{title}"
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:18]
+
+
+def parse_rss_items_from_root(root: ET.Element) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    for elem in root.iter():
+        if local_xml_tag(elem.tag) != "item":
+            continue
+        title = ""
+        link = ""
+        pub = ""
+        desc = ""
+        for child in elem:
+            t = local_xml_tag(child.tag)
+            if t == "title":
+                title = "".join(child.itertext()).strip()
+            elif t == "link":
+                link = (child.text or "").strip()
+                if not link:
+                    link = (child.get("href") or "").strip()
+            elif t == "pubDate":
+                pub = (child.text or "").strip()
+            elif t in {"description", "summary", "content:encoded"}:
+                raw = "".join(child.itertext()).strip()
+                if not desc:
+                    desc = strip_html_tags(raw)[:500]
+        if title or link:
+            items.append({
+                "title": title or "(no title)",
+                "link": link,
+                "published": pub,
+                "summary": desc[:450],
+            })
+    return items
+
+
+def parse_atom_entries_from_root(root: ET.Element) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    for elem in root.iter():
+        if local_xml_tag(elem.tag) != "entry":
+            continue
+        title = ""
+        link = ""
+        pub = ""
+        summary = ""
+        for child in elem:
+            t = local_xml_tag(child.tag)
+            if t == "title":
+                title = "".join(child.itertext()).strip()
+            elif t == "link":
+                link = (child.get("href") or (child.text or "")).strip()
+            elif t in {"published", "updated"}:
+                val = (child.text or "").strip()
+                if val:
+                    pub = val
+            elif t in {"summary", "content"}:
+                raw = "".join(child.itertext()).strip()
+                if not summary:
+                    summary = strip_html_tags(raw)[:500]
+        if title or link:
+            items.append({
+                "title": title or "(no title)",
+                "link": link,
+                "published": pub,
+                "summary": summary[:450],
+            })
+    return items
+
+
+def parse_feed_xml(xml_text: str) -> list[dict[str, str]]:
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return []
+    lt = local_xml_tag(root.tag)
+    if lt == "feed":
+        return parse_atom_entries_from_root(root)
+    return parse_rss_items_from_root(root)
+
+
+def merge_policy_feeds() -> list[dict[str, str]]:
+    feeds: list[dict[str, str]] = [dict(x) for x in DEFAULT_POLICY_FEEDS]
+    raw = os.getenv("POLICY_RSS_FEEDS", "").strip()
+    if raw:
+        try:
+            extra = json.loads(raw)
+            if isinstance(extra, list):
+                for row in extra:
+                    if isinstance(row, dict) and safe_string(row.get("url")):
+                        feeds.append({
+                            "name": safe_string(row.get("name")) or "Custom RSS",
+                            "url": safe_string(row.get("url")),
+                        })
+        except json.JSONDecodeError:
+            pass
+    return feeds
+
+
+async def collect_policy_candidates() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    merged = merge_policy_feeds()
+    candidates: list[dict[str, Any]] = []
+    feeds_status: list[dict[str, Any]] = []
+    max_candidates = 40
+    max_per_feed = 12
+    headers = {
+        "User-Agent": "CompliSurePolicyBot/1.0 (Indian compliance policy monitor)",
+        "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for feed in merged:
+            name = feed["name"]
+            url = feed["url"]
+            try:
+                response = await client.get(url, headers=headers, follow_redirects=True, timeout=22.0)
+                response.raise_for_status()
+                items = parse_feed_xml(response.text)[:max_per_feed]
+                count = 0
+                for it in items:
+                    title = safe_string(it.get("title"))
+                    link = safe_string(it.get("link"))
+                    if not title and not link:
+                        continue
+                    cid = len(candidates)
+                    candidates.append({
+                        "candidate_id": cid,
+                        "title": title or "(no title)",
+                        "link": link,
+                        "source": name,
+                        "published": safe_string(it.get("published")),
+                        "summary": safe_string(it.get("summary"))[:450],
+                        "stable_id": stable_policy_id(link or title, title),
+                    })
+                    count += 1
+                    if len(candidates) >= max_candidates:
+                        break
+                feeds_status.append({"name": name, "url": url, "ok": True, "items": count, "error": ""})
+            except Exception as exc:
+                feeds_status.append({
+                    "name": name,
+                    "url": url,
+                    "ok": False,
+                    "items": 0,
+                    "error": str(exc)[:160],
+                })
+            if len(candidates) >= max_candidates:
+                break
+    return candidates, feeds_status
+
+
+POLICY_USE_AGENTIC = os.getenv("POLICY_USE_AGENTIC", "true").strip().lower() in {"1", "true", "yes", "on"}
+POLICY_AGENT_MAX_TURNS = min(16, max(4, int(os.getenv("POLICY_AGENT_MAX_TURNS", "12") or "12")))
+POLICY_AGENT_MAX_FETCHES = min(8, max(1, int(os.getenv("POLICY_AGENT_MAX_FETCHES", "5") or "5")))
+
+POLICY_AGENT_TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "list_configured_rss_feeds",
+            "description": "List RSS/Atom URLs configured for this deployment. Call first to choose which feeds to load.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_business_profile",
+            "description": "Return the founder/company onboarding profile JSON for this scan (sector, state, GST, employees, etc.).",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_rss_feed",
+            "description": (
+                "Download and parse one RSS/Atom feed URL. Only URLs returned by list_configured_rss_feeds are allowed. "
+                "Returns items each with a candidate_id you must use in submit_policy_scan."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "Exact feed URL from the configured list"},
+                    "max_items": {"type": "integer", "description": "Max items to return (default 12, max 15)"},
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "submit_policy_scan",
+            "description": (
+                "Finish the scan: pass up to 5 ranked alerts that reference candidate_id values from items you fetched. "
+                "Call exactly once when ready."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reasoning_summary": {
+                        "type": "string",
+                        "description": "Briefly describe which feeds you opened and why these items matter for this business.",
+                    },
+                    "alerts": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "candidate_id": {"type": "integer"},
+                                "relevance_score": {"type": "number"},
+                                "risk_level": {"type": "string", "enum": ["low", "medium", "high"]},
+                                "why_relevant": {"type": "string"},
+                                "business_impact": {"type": "string"},
+                                "suggested_actions": {"type": "array", "items": {"type": "string"}},
+                                "departments": {"type": "array", "items": {"type": "string"}},
+                            },
+                            "required": ["candidate_id", "business_impact", "risk_level"],
+                        },
+                    },
+                },
+                "required": ["alerts", "reasoning_summary"],
+            },
+        },
+    },
+]
+
+
+class PolicyAgentState:
+    def __init__(
+        self,
+        company: str,
+        founder: str,
+        profile: dict[str, Any],
+        situation: dict[str, Any],
+        business_context: dict[str, Any],
+    ) -> None:
+        self.company = company
+        self.founder = founder
+        self.profile = profile
+        self.situation = situation if isinstance(situation, dict) else {}
+        self.business_context = business_context if isinstance(business_context, dict) else {}
+        self.store: dict[int, dict[str, Any]] = {}
+        self.next_id = 0
+        self.fetch_count = 0
+        self.feeds_status: list[dict[str, Any]] = []
+        self.final_submission: dict[str, Any] | None = None
+        self.trace: list[dict[str, Any]] = []
+        self.allowed_feed_urls: set[str] = {safe_string(f.get("url")) for f in merge_policy_feeds() if safe_string(f.get("url"))}
+
+
+async def groq_chat_request(request_body: dict[str, Any]) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(
+            GROQ_CHAT_COMPLETIONS_ENDPOINT,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+            },
+            json=request_body,
+        )
+    data = parse_provider_response(response)
+    if response.status_code >= 400:
+        raise HTTPException(status_code=min(response.status_code, 502), detail=extract_message(data, "Groq request failed."))
+    return data
+
+
+def groq_first_choice_message(data: dict[str, Any]) -> dict[str, Any]:
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return {}
+    first = choices[0]
+    if not isinstance(first, dict):
+        return {}
+    msg = first.get("message")
+    return msg if isinstance(msg, dict) else {}
+
+
+async def execute_policy_agent_tool(
+    state: PolicyAgentState,
+    name: str,
+    args: dict[str, Any],
+    client: httpx.AsyncClient,
+) -> str:
+    if name == "list_configured_rss_feeds":
+        feeds = merge_policy_feeds()
+        return json.dumps({"feeds": feeds, "count": len(feeds)}, ensure_ascii=True)
+
+    if name == "get_business_profile":
+        return json.dumps({
+            "company_name": state.company,
+            "founder_name": state.founder,
+            "onboarding_profile": state.profile,
+            "situation_analysis": state.situation,
+            "workspace_snapshot": state.business_context,
+        }, ensure_ascii=True)
+
+    if name == "fetch_rss_feed":
+        if state.fetch_count >= POLICY_AGENT_MAX_FETCHES:
+            return json.dumps({
+                "ok": False,
+                "error": "fetch_limit_reached",
+                "max_fetches": POLICY_AGENT_MAX_FETCHES,
+            }, ensure_ascii=True)
+
+        url = safe_string(args.get("url")).strip()
+        if not url.startswith("http"):
+            return json.dumps({"ok": False, "error": "invalid_url"}, ensure_ascii=True)
+        if url not in state.allowed_feed_urls:
+            return json.dumps({
+                "ok": False,
+                "error": "url_not_allowlisted",
+                "hint": "Use an exact url from list_configured_rss_feeds only.",
+            }, ensure_ascii=True)
+
+        max_items = int(safe_number(args.get("max_items")) or 12)
+        max_items = min(max(1, max_items), 15)
+        headers = {
+            "User-Agent": "CompliSurePolicyAgent/1.0 (tool fetch)",
+            "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+        }
+        feed_name = "RSS"
+        for fd in merge_policy_feeds():
+            if safe_string(fd.get("url")) == url:
+                feed_name = safe_string(fd.get("name")) or feed_name
+                break
+        try:
+            response = await client.get(url, headers=headers, follow_redirects=True, timeout=22.0)
+            response.raise_for_status()
+            parsed = parse_feed_xml(response.text)[:max_items]
+        except Exception as exc:
+            state.feeds_status.append({
+                "name": feed_name,
+                "url": url,
+                "ok": False,
+                "items": 0,
+                "error": str(exc)[:160],
+            })
+            return json.dumps({"ok": False, "error": str(exc)[:200]}, ensure_ascii=True)
+
+        state.fetch_count += 1
+        items_out: list[dict[str, Any]] = []
+        count = 0
+        for it in parsed:
+            title = safe_string(it.get("title"))
+            link = safe_string(it.get("link"))
+            if not title and not link:
+                continue
+            cid = state.next_id
+            state.next_id += 1
+            state.store[cid] = {
+                "candidate_id": cid,
+                "title": title or "(no title)",
+                "link": link,
+                "source": feed_name,
+                "published": safe_string(it.get("published")),
+                "summary": safe_string(it.get("summary"))[:450],
+                "stable_id": stable_policy_id(link or title, title),
+            }
+            items_out.append({
+                "candidate_id": cid,
+                "title": state.store[cid]["title"],
+                "link": state.store[cid]["link"],
+                "published": state.store[cid]["published"],
+                "summary": state.store[cid]["summary"][:320],
+            })
+            count += 1
+
+        state.feeds_status.append({
+            "name": feed_name,
+            "url": url,
+            "ok": True,
+            "items": count,
+            "error": "",
+        })
+        return json.dumps({
+            "ok": True,
+            "feed": feed_name,
+            "items_returned": len(items_out),
+            "items": items_out,
+        }, ensure_ascii=True)
+
+    if name == "submit_policy_scan":
+        alerts = args.get("alerts")
+        if not isinstance(alerts, list):
+            return json.dumps({"ok": False, "error": "alerts_must_be_array"}, ensure_ascii=True)
+        state.final_submission = {
+            "alerts": alerts,
+            "reasoning_summary": safe_string(args.get("reasoning_summary")),
+        }
+        return json.dumps({"ok": True, "status": "submitted", "candidates_in_store": len(state.store)}, ensure_ascii=True)
+
+    return json.dumps({"ok": False, "error": "unknown_tool", "name": name}, ensure_ascii=True)
+
+
+async def analyze_business_situation(
+    company: str,
+    founder: str,
+    profile: dict[str, Any],
+    business_context: dict[str, Any],
+) -> dict[str, Any]:
+    """LLM pass: interpret Qdrant-backed workspace snapshot + live CA summary for policy relevance."""
+    ensure_groq_configured()
+    if not business_context or not isinstance(business_context, dict):
+        return {
+            "situation_summary": "No workspace snapshot stored yet; rely on onboarding profile only.",
+            "compliance_posture": "unknown",
+            "risk_hotspots": [],
+            "policy_interpretation_hints": [],
+        }
+
+    payload = {
+        "company_name": company,
+        "founder_name": founder,
+        "onboarding_profile": profile,
+        "workspace_snapshot": business_context,
+    }
+    response = await groq_json_completion([
+        {
+            "role": "system",
+            "content": (
+                "You are a senior Indian SME compliance analyst. Read the workspace snapshot (calendar load, "
+                "compliance health, CA filing workload, prior policy scans). Infer the current operational and "
+                "compliance posture. Return JSON only."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Analyze this workspace and how stressed or prepared the business likely is.\n"
+                f"{json.dumps(payload, ensure_ascii=True)}\n\n"
+                "Return JSON with keys: situation_summary (4-6 sentences), compliance_posture (one of: "
+                "strong|fair|strained|critical|unknown), risk_hotspots (array of short strings), "
+                "policy_interpretation_hints (array of short strings: what categories of new circulars or "
+                "regulatory notices would matter most for this business right now)."
+            ),
+        },
+    ], max_completion_tokens=1000)
+
+    posture = safe_string(response.get("compliance_posture")).lower()
+    if posture not in {"strong", "fair", "strained", "critical", "unknown"}:
+        posture = "unknown"
+
+    return {
+        "situation_summary": safe_string(response.get("situation_summary")),
+        "compliance_posture": posture,
+        "risk_hotspots": normalize_string_list(response.get("risk_hotspots"))[:10],
+        "policy_interpretation_hints": normalize_string_list(response.get("policy_interpretation_hints"))[:10],
+    }
+
+
+def situation_for_api(situation: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "situationSummary": safe_string(situation.get("situation_summary")),
+        "compliancePosture": safe_string(situation.get("compliance_posture")),
+        "riskHotspots": normalize_string_list(situation.get("risk_hotspots"))[:10],
+        "policyInterpretationHints": normalize_string_list(situation.get("policy_interpretation_hints"))[:10],
+    }
+
+
+def build_alerts_output_from_rows(
+    by_id: dict[int, dict[str, Any]],
+    raw_alerts: list[Any],
+) -> list[dict[str, Any]]:
+    alerts_out: list[dict[str, Any]] = []
+    for row in raw_alerts:
+        if not isinstance(row, dict):
+            continue
+        try:
+            cid = int(row.get("candidate_id"))
+        except (TypeError, ValueError):
+            continue
+        base = by_id.get(cid)
+        if not base:
+            continue
+        score = safe_number(row.get("relevance_score"))
+        if score <= 0:
+            score = 0.65
+        risk = safe_string(row.get("risk_level")).lower()
+        if risk not in {"low", "medium", "high"}:
+            risk = "medium"
+        impact = safe_string(row.get("business_impact"))
+        if not impact:
+            impact = safe_string(row.get("why_relevant"))
+        actions = normalize_string_list(row.get("suggested_actions"))[:6]
+        alerts_out.append({
+            "id": base["stable_id"],
+            "title": base["title"],
+            "url": base["link"],
+            "source": base["source"],
+            "published": base["published"],
+            "summary": base["summary"][:320],
+            "whyRelevant": safe_string(row.get("why_relevant")),
+            "businessImpact": impact,
+            "suggestedActions": actions,
+            "riskLevel": risk,
+            "relevanceScore": min(1.0, max(0.0, score)) if score else 0.5,
+            "departments": normalize_string_list(row.get("departments"))[:8],
+        })
+
+    alerts_out.sort(key=lambda a: (-a.get("relevanceScore", 0), a.get("riskLevel", "")))
+    return alerts_out[:5]
+
+
+async def run_policy_watch_agentic_scan(
+    company: str,
+    founder: str,
+    profile: dict[str, Any],
+    situation: dict[str, Any],
+    business_context: dict[str, Any],
+) -> tuple[list[dict[str, Any]] | None, list[dict[str, Any]], list[dict[str, Any]], str]:
+    """Returns (alerts or None, feeds_status, trace, mode)."""
+    state = PolicyAgentState(company, founder, profile, situation, business_context)
+    context = {
+        "company_name": company,
+        "founder_name": founder,
+        "onboarding_profile": profile,
+        "situation_analysis": situation,
+        "workspace_snapshot": business_context,
+    }
+    system = (
+        "You are CompliSure's autonomous policy-radar agent for Indian SMEs. "
+        "You MUST use tools: call list_configured_rss_feeds, then fetch_rss_feed for feeds you need "
+        f"(at most {POLICY_AGENT_MAX_FETCHES} fetches), optionally get_business_profile, "
+        "then submit_policy_scan with at most 5 alerts. "
+        "Each alert must use candidate_id from fetched items only. "
+        "Skip ceremonial or irrelevant items. Focus on tax, MCA, GST, labour, PF, ESI, banking, RBI, SEBI. "
+        "Use situation_analysis and workspace_snapshot to explain business_impact: tie each alert to the "
+        "business's current workload, health score, and filing pressure when relevant."
+    )
+    user = (
+        "Run a policy scan. Ground truth includes Qdrant workspace data and a pre-analysis of the business situation.\n"
+        f"{json.dumps(context, ensure_ascii=True)}\n\n"
+        "Work step by step with tools until you call submit_policy_scan."
+    )
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+
+    async with httpx.AsyncClient(timeout=35.0) as http_client:
+        for turn in range(POLICY_AGENT_MAX_TURNS):
+            request_body: dict[str, Any] = {
+                "model": GROQ_MODEL,
+                "messages": messages,
+                "tools": POLICY_AGENT_TOOLS,
+                "tool_choice": "auto",
+                "temperature": 0.15,
+                "max_completion_tokens": 1400,
+            }
+            try:
+                data = await groq_chat_request(request_body)
+            except HTTPException:
+                raise
+            except Exception as exc:
+                state.trace.append({"turn": turn + 1, "error": str(exc)[:200]})
+                return None, state.feeds_status, state.trace, "agent_error"
+
+            msg = groq_first_choice_message(data)
+            tool_calls = msg.get("tool_calls")
+            if isinstance(tool_calls, list) and tool_calls:
+                messages.append(msg)
+                for tc in tool_calls:
+                    if not isinstance(tc, dict):
+                        continue
+                    tc_id = safe_string(tc.get("id")) or f"call_{turn}"
+                    fn = tc.get("function")
+                    if not isinstance(fn, dict):
+                        continue
+                    tname = safe_string(fn.get("name"))
+                    raw_args = safe_string(fn.get("arguments")) or "{}"
+                    try:
+                        targs = json.loads(raw_args)
+                    except json.JSONDecodeError:
+                        targs = {}
+                    if not isinstance(targs, dict):
+                        targs = {}
+                    result_str = await execute_policy_agent_tool(state, tname, targs, http_client)
+                    state.trace.append({
+                        "turn": turn + 1,
+                        "tool": tname,
+                        "preview": result_str[:400],
+                    })
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "content": result_str,
+                    })
+                    if tname == "submit_policy_scan" and state.final_submission is not None:
+                        raw = state.final_submission.get("alerts")
+                        if not isinstance(raw, list):
+                            raw = []
+                        alerts_out = build_alerts_output_from_rows(state.store, raw)
+                        summary = safe_string(state.final_submission.get("reasoning_summary"))
+                        state.trace.append({"turn": turn + 1, "note": "submit_policy_scan", "reasoning_summary": summary[:500]})
+                        return alerts_out, state.feeds_status, state.trace, "agent"
+                continue
+
+            content = safe_string(msg.get("content"))
+            if content:
+                state.trace.append({"turn": turn + 1, "assistant_text": content[:500]})
+            break
+
+    return None, state.feeds_status, state.trace, "agent_incomplete"
+
+
+async def policy_watch_scan_single_shot(
+    company: str,
+    founder: str,
+    profile: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    situation: dict[str, Any],
+    business_context: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    context = {
+        "company_name": company,
+        "founder_name": founder,
+        "onboarding_profile": profile,
+        "situation_analysis": situation,
+        "workspace_snapshot": business_context,
+    }
+    candidate_payload = [
+        {
+            "candidate_id": c["candidate_id"],
+            "title": c["title"],
+            "link": c["link"],
+            "source": c["source"],
+            "published": c["published"],
+            "summary": c["summary"],
+        }
+        for c in candidates
+    ]
+    response = await groq_json_completion([
+        {
+            "role": "system",
+            "content": (
+                "You filter official government and regulator RSS items for Indian SME compliance relevance. "
+                "You must only reference candidate_id values from the provided list. "
+                "Ignore items that are purely ceremonial, sports, or unrelated to tax, corporate law, "
+                "GST, labour, PF, ESI, banking, RBI regulation, SEBI, or MCA for businesses. "
+                "For every alert you return, you MUST write business_impact tailored to the given "
+                "company_name, onboarding_profile, situation_analysis, and workspace_snapshot (Qdrant + CA workload). "
+                "Be specific: e.g. how filing deadlines, registration, tax positions, or director duties could change. "
+                "Return JSON only."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Business context (includes Qdrant snapshot summary and current situation analysis):\n"
+                f"{json.dumps(context, ensure_ascii=True)}\n\n"
+                "RSS candidates (use candidate_id only from this list):\n"
+                f"{json.dumps(candidate_payload, ensure_ascii=True)}\n\n"
+                "Return JSON with key alerts: array of at most 5 objects, each with: "
+                "candidate_id (int), relevance_score (0-1 number), risk_level (low|medium|high), "
+                "why_relevant (one short sentence, general reason), "
+                "business_impact (required: 2-4 sentences on how this notice or policy could affect THIS business "
+                "given the profile and situation above—mention workload, health score, or filing pressure when relevant), "
+                "suggested_actions (array of 2-5 short strings: what the founder or CA should review or do next), "
+                "departments (array of short strings e.g. GST, MCA, RBI). "
+                "Prefer higher impact and newer policy or regulatory changes. "
+                "If nothing is relevant, return an empty alerts array."
+            ),
+        },
+    ], max_completion_tokens=1800)
+
+    raw_alerts = response.get("alerts")
+    if not isinstance(raw_alerts, list):
+        raw_alerts = []
+    by_id = {c["candidate_id"]: c for c in candidates}
+    alerts_out = build_alerts_output_from_rows(by_id, raw_alerts)
+    return alerts_out, response
+
+
+@app.post("/policy-watch/scan")
+async def policy_watch_scan(payload: PolicyWatchRequest) -> dict[str, Any]:
+    ensure_groq_configured()
+    company = safe_string(payload.company_name)
+    founder = safe_string(payload.founder_name)
+    profile = payload.onboarding_profile if isinstance(payload.onboarding_profile, dict) else {}
+    business_context = payload.business_context if isinstance(payload.business_context, dict) else {}
+    scanned_at = datetime.now(timezone.utc).isoformat()
+
+    situation = await analyze_business_situation(company, founder, profile, business_context)
+    situation_resp = situation_for_api(situation)
+
+    agent_trace_carry: list[dict[str, Any]] = []
+    if POLICY_USE_AGENTIC:
+        try:
+            agent_alerts, agent_feeds, agent_trace_carry, _ = await run_policy_watch_agentic_scan(
+                company, founder, profile, situation, business_context
+            )
+            if agent_alerts is not None:
+                return {
+                    "success": True,
+                    "scannedAt": scanned_at,
+                    "alerts": agent_alerts,
+                    "feeds": agent_feeds,
+                    "message": "",
+                    "agentMode": "agent",
+                    "agentTrace": agent_trace_carry,
+                    "situationAnalysis": situation_resp,
+                }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            agent_trace_carry = [{"error": str(exc)[:200], "phase": "agent"}]
+
+    candidates, feeds_status = await collect_policy_candidates()
+
+    if not candidates:
+        return {
+            "success": True,
+            "scannedAt": scanned_at,
+            "alerts": [],
+            "feeds": feeds_status,
+            "message": (
+                "No items could be loaded from RSS feeds. "
+                "Add more sources via POLICY_RSS_FEEDS in .env or check network access."
+            ),
+            "agentMode": "fallback",
+            "agentTrace": agent_trace_carry,
+            "situationAnalysis": situation_resp,
+        }
+
+    alerts_out, _ = await policy_watch_scan_single_shot(
+        company, founder, profile, candidates, situation, business_context
+    )
+
+    return {
+        "success": True,
+        "scannedAt": scanned_at,
+        "alerts": alerts_out,
+        "feeds": feeds_status,
+        "message": "",
+        "agentMode": "fallback",
+        "agentTrace": agent_trace_carry + [{"step": "single_shot_ranking"}],
+        "situationAnalysis": situation_resp,
+    }
+
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
     return {
@@ -109,6 +891,8 @@ async def health() -> dict[str, Any]:
         "base_url": SANDBOX_BASE_URL,
         "groqConfigured": bool(GROQ_API_KEY),
         "invoiceModel": GROQ_MODEL,
+        "policyAgentic": POLICY_USE_AGENTIC,
+        "policyAgentMaxTurns": POLICY_AGENT_MAX_TURNS,
     }
 
 
@@ -348,6 +1132,51 @@ async def chat_about_notice(payload: NoticeChatRequest) -> dict[str, Any]:
         "answer": safe_string(response.get("answer")),
         "businessImpact": safe_string(response.get("business_impact")),
         "nextSteps": normalize_string_list(response.get("next_steps")),
+        "caution": safe_string(response.get("caution")),
+    }
+
+
+@app.post("/assistant/chat")
+async def chat_with_compliance_assistant(payload: AssistantChatRequest) -> dict[str, Any]:
+    ensure_groq_configured()
+
+    question = safe_string(payload.question).strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Enter a compliance question.")
+
+    context = {
+        "company_name": safe_string(payload.company_name),
+        "founder_name": safe_string(payload.founder_name),
+        "reminders": payload.reminders if isinstance(payload.reminders, dict) else {},
+        "ca_rows": payload.ca_rows if isinstance(payload.ca_rows, list) else [],
+        "onboarding_profile": payload.onboarding_profile if isinstance(payload.onboarding_profile, dict) else {},
+    }
+
+    response = await groq_json_completion([
+        {
+            "role": "system",
+            "content": (
+                "You are CompliSure's AI compliance assistant for Indian startups and SMEs. "
+                "Answer user compliance questions in practical plain English and suggest upcoming tasks "
+                "using the provided workspace context only. Return JSON only."
+            )
+        },
+        {
+            "role": "user",
+            "content": (
+                "Use this context to answer and suggest tasks. "
+                "Return JSON with keys answer, upcoming_tasks, urgency, and caution.\n"
+                f"Context: {json.dumps(context, ensure_ascii=True)}\n"
+                f"Question: {question}"
+            )
+        }
+    ], max_completion_tokens=900)
+
+    return {
+        "success": True,
+        "answer": safe_string(response.get("answer")),
+        "upcomingTasks": normalize_string_list(response.get("upcoming_tasks")),
+        "urgency": normalize_urgency(response.get("urgency")),
         "caution": safe_string(response.get("caution")),
     }
 

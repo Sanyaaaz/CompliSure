@@ -1,6 +1,58 @@
 {
   "documents": [
     {
+      "id": "bill-2053bcec-b709-4151-9e9b-26e3c58baf6b",
+      "scannedAt": "2026-04-17T19:06:11.355Z",
+      "fileName": "invoice 2.webp",
+      "mimeType": "image/webp",
+      "documentType": "invoice",
+      "vendorName": "Ad4tech Material LLC",
+      "invoiceNumber": "INV-005",
+      "invoiceDate": "2021-06-22",
+      "dueDate": "2021-06-27",
+      "currency": "$",
+      "subtotal": 1564,
+      "taxAmount": 0,
+      "cgstAmount": 0,
+      "sgstAmount": 0,
+      "igstAmount": 0,
+      "totalAmount": 1564,
+      "paymentMethod": "",
+      "gstin": "",
+      "category": "General expense",
+      "notes": "",
+      "confidence": 0.9,
+      "lineItems": [
+        {
+          "description": "Desktop furniture",
+          "quantity": 1,
+          "unitPrice": 232,
+          "amount": 232,
+          "taxRate": 0,
+          "taxAmount": 0,
+          "category": "General expense"
+        },
+        {
+          "description": "Plumbing and electrical services",
+          "quantity": 2,
+          "unitPrice": 514,
+          "amount": 1028,
+          "taxRate": 0,
+          "taxAmount": 0,
+          "category": "General expense"
+        },
+        {
+          "description": "Water tank repair works",
+          "quantity": 2,
+          "unitPrice": 152,
+          "amount": 304,
+          "taxRate": 0,
+          "taxAmount": 0,
+          "category": "General expense"
+        }
+      ]
+    },
+    {
       "id": "bill-488f2c70-d995-4e3a-b32f-69592aa5731a",
       "scannedAt": "2026-04-17T18:00:30.488Z",
       "fileName": "invoicee.png",
@@ -54,6 +106,54 @@
     }
   ],
   "transactions": [
+    {
+      "id": "txn-bill-2053bcec-b709-4151-9e9b-26e3c58baf6b-0-1143fe44-31e9-4ff4-8ce3-f65c8a8a5d17",
+      "documentId": "bill-2053bcec-b709-4151-9e9b-26e3c58baf6b",
+      "invoiceDate": "2021-06-22",
+      "vendorName": "Ad4tech Material LLC",
+      "invoiceNumber": "INV-005",
+      "description": "Desktop furniture",
+      "category": "General expense",
+      "quantity": 1,
+      "unitPrice": 232,
+      "baseAmount": 232,
+      "taxAmount": 0,
+      "grossAmount": 232,
+      "gstin": "",
+      "paymentMethod": ""
+    },
+    {
+      "id": "txn-bill-2053bcec-b709-4151-9e9b-26e3c58baf6b-1-2333ef2d-ff98-466b-bd58-9805b89766ea",
+      "documentId": "bill-2053bcec-b709-4151-9e9b-26e3c58baf6b",
+      "invoiceDate": "2021-06-22",
+      "vendorName": "Ad4tech Material LLC",
+      "invoiceNumber": "INV-005",
+      "description": "Plumbing and electrical services",
+      "category": "General expense",
+      "quantity": 2,
+      "unitPrice": 514,
+      "baseAmount": 1028,
+      "taxAmount": 0,
+      "grossAmount": 1028,
+      "gstin": "",
+      "paymentMethod": ""
+    },
+    {
+      "id": "txn-bill-2053bcec-b709-4151-9e9b-26e3c58baf6b-2-a0ea348a-fa04-4094-97f5-63d737bce1da",
+      "documentId": "bill-2053bcec-b709-4151-9e9b-26e3c58baf6b",
+      "invoiceDate": "2021-06-22",
+      "vendorName": "Ad4tech Material LLC",
+      "invoiceNumber": "INV-005",
+      "description": "Water tank repair works",
+      "category": "General expense",
+      "quantity": 2,
+      "unitPrice": 152,
+      "baseAmount": 304,
+      "taxAmount": 0,
+      "grossAmount": 304,
+      "gstin": "",
+      "paymentMethod": ""
+    },
     {
       "id": "txn-bill-488f2c70-d995-4e3a-b32f-69592aa5731a-0-140f5249-60aa-49dd-aaf7-2da280214645",
       "documentId": "bill-488f2c70-d995-4e3a-b32f-69592aa5731a",

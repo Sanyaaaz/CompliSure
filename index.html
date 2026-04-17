@@ -14,6 +14,20 @@
 </head>
 <body>
   <div id="app"></div>
-  <script type="module" src="./src/main.js"></script>
+  <script type="module">
+    if (location.protocol === "file:") {
+      const el = document.getElementById("app");
+      if (el) {
+        el.innerHTML =
+          '<div style="padding:2rem;max-width:560px;margin:2rem auto;font-family:system-ui,sans-serif;line-height:1.6">' +
+          '<h1 style="font-size:1.25rem;margin:0 0 1rem">Use the local server</h1>' +
+          '<p style="margin:0 0 .75rem;color:#334155">This app uses ES modules. Opening <code>index.html</code> from disk (<code>file://</code>) cannot load the app scripts, so the page stays blank.</p>' +
+          '<p style="margin:0"><strong>Run</strong> <code style="background:#f1f5f9;padding:2px 8px;border-radius:6px">npm run dev</code> in the project folder, then open <code style="background:#f1f5f9;padding:2px 8px;border-radius:6px">http://127.0.0.1:3000</code></p>' +
+          "</div>";
+      }
+    } else {
+      import("./src/main.js");
+    }
+  </script>
 </body>
 </html>

@@ -1,8 +1,18 @@
 import { COMPLIANCE_DB, PENALTY_DATA, SAMPLE_NOTICE } from "./data.js";
+import {
+  classifyCalendarItem,
+  COMPLIANCE_SOON_DAYS,
+  computeComplianceHealth,
+  renderComplianceHealthDashboardHtml,
+  renderComplianceHealthInlineHtml
+} from "./complianceHealth.js";
 import { renderDashboardPage } from "./components/dashboardPage.js";
 import { renderLandingPage } from "./components/landingPage.js";
 
 const root = document.getElementById("app");
+if (!root) {
+  console.error("Complisure: missing #app root element.");
+}
 // Temporary switch to let the team continue testing while Aadhaar verification is paused.
 const TEMPORARY_DETAILS_ONLY_LOGIN = true;
 
@@ -32,22 +42,35 @@ function createDefaultAuthState() {
 }
 
 function createDefaultReminderState(session = null, saved = {}) {
+  const s = saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
   return {
-    ownerName: saved.ownerName || session?.fullName || "",
-    companyName: saved.companyName || session?.companyName || "",
-    ownerEmail: saved.ownerEmail || "",
-    caName: saved.caName || "Linked CA",
-    caEmail: saved.caEmail || "",
-    obligationName: saved.obligationName || "GSTR-3B - Monthly Return",
-    dueDate: saved.dueDate || "",
-    trigger: saved.trigger || "7_days_before"
+    ownerName: s.ownerName || session?.fullName || "",
+    companyName: s.companyName || session?.companyName || "",
+    ownerEmail: s.ownerEmail || "",
+    caName: s.caName || "Linked CA",
+    caEmail: s.caEmail || "",
+    obligationName: s.obligationName || "GSTR-3B - Monthly Return",
+    dueDate: s.dueDate || "",
+    trigger: s.trigger || "7_days_before"
   };
 }
 
+function parseStoredObject(raw, fallback = {}) {
+  if (!raw) return fallback;
+  try {
+    const value = JSON.parse(raw);
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return fallback;
+    return value;
+  } catch {
+    return fallback;
+  }
+}
+
 function createDefaultBillWorkspace(saved = {}) {
+  const s = saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
   return {
-    documents: Array.isArray(saved.documents) ? saved.documents : [],
-    transactions: Array.isArray(saved.transactions) ? saved.transactions : [],
+    documents: Array.isArray(s.documents) ? s.documents : [],
+    transactions: Array.isArray(s.transactions) ? s.transactions : [],
     selectedFileName: "",
     scanMessage: "",
     scanError: false,
@@ -58,12 +81,13 @@ function createDefaultBillWorkspace(saved = {}) {
 }
 
 function createDefaultNoticeWorkspace(saved = {}) {
+  const s = saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
   return {
-    sourceText: saved.sourceText || "",
-    sourceLabel: saved.sourceLabel || "",
+    sourceText: s.sourceText || "",
+    sourceLabel: s.sourceLabel || "",
     selectedFileName: "",
-    interpretation: saved.interpretation || null,
-    chatHistory: Array.isArray(saved.chatHistory) ? saved.chatHistory : [],
+    interpretation: s.interpretation || null,
+    chatHistory: Array.isArray(s.chatHistory) ? s.chatHistory : [],
     questionInput: "",
     noticeMessage: "",
     noticeError: false,
@@ -89,24 +113,251 @@ function createDefaultCaPortalState() {
   };
 }
 
+function createDefaultAssistantState() {
+  return {
+    open: false,
+    input: "",
+    history: [],
+    loading: false,
+    message: "",
+    error: false
+  };
+}
+
+function readPolicyWatchFromStorage() {
+  try {
+    const raw = localStorage.getItem("complisure-policy-watch");
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+    return {
+      alerts: Array.isArray(data.alerts) ? data.alerts : [],
+      seenIds: Array.isArray(data.seenIds) ? data.seenIds : [],
+      scannedAt: data.scannedAt || null,
+      feeds: Array.isArray(data.feeds) ? data.feeds : [],
+      lastMessage: typeof data.lastMessage === "string" ? data.lastMessage : "",
+      agentMode: typeof data.agentMode === "string" ? data.agentMode : "",
+      agentTrace: Array.isArray(data.agentTrace) ? data.agentTrace : [],
+      situationAnalysis: data.situationAnalysis && typeof data.situationAnalysis === "object" ? data.situationAnalysis : null
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistPolicyWatch() {
+  try {
+    localStorage.setItem(
+      "complisure-policy-watch",
+      JSON.stringify({
+        alerts: state.policyWatch.alerts,
+        seenIds: state.policyWatch.seenIds,
+        scannedAt: state.policyWatch.scannedAt,
+        feeds: state.policyWatch.feeds,
+        lastMessage: state.policyWatch.lastMessage || "",
+        agentMode: state.policyWatch.agentMode || "",
+        agentTrace: Array.isArray(state.policyWatch.agentTrace) ? state.policyWatch.agentTrace.slice(0, 16) : [],
+        situationAnalysis: state.policyWatch.situationAnalysis || null
+      })
+    );
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+function createDefaultPolicyWatchState() {
+  const from = readPolicyWatchFromStorage();
+  return {
+    alerts: from?.alerts || [],
+    seenIds: from?.seenIds || [],
+    scannedAt: from?.scannedAt || null,
+    feeds: from?.feeds || [],
+    lastMessage: from?.lastMessage || "",
+    agentMode: from?.agentMode || "",
+    agentTrace: Array.isArray(from?.agentTrace) ? from.agentTrace : [],
+    situationAnalysis: from?.situationAnalysis && typeof from.situationAnalysis === "object" ? from.situationAnalysis : null,
+    loading: false,
+    error: ""
+  };
+}
+
+function buildPolicyProfileForScan() {
+  const o = state.onboardingProfile || {};
+  const c = state.onboardingCalendar?.profile || {};
+  return {
+    companyType: o.companyType || c.type || "",
+    sector: o.sector || c.sector || "",
+    stateCode: o.stateCode || c.stateCode || "",
+    employeeBand: o.employeeBand || c.employeeBand || "",
+    gst: o.gst || c.gst || "",
+    deposits: o.deposits || c.deposits || "",
+    calendarItems: o.calendarItems || 0
+  };
+}
+
+function buildBusinessSnapshotPayload() {
+  const items = state.onboardingCalendar?.items || [];
+  const health = computeComplianceHealth(items);
+  const rows = state.caRows || [];
+  let overdue = 0;
+  let pending = 0;
+  let filed = 0;
+  let inprogress = 0;
+  for (const r of rows) {
+    const s = String(r.status || "").toLowerCase();
+    if (s === "overdue") overdue += 1;
+    else if (s === "pending") pending += 1;
+    else if (s === "filed") filed += 1;
+    else if (s === "inprogress") inprogress += 1;
+  }
+  const topObligations = items.slice(0, 15).map((i) => ({
+    name: i.name,
+    dept: i.dept,
+    stageTag: i.stageTag,
+    urgency: i.urgency
+  }));
+  return {
+    snapshot: {
+      onboardingProfile: buildPolicyProfileForScan(),
+      calendar: {
+        itemCount: items.length,
+        stageCounts: state.onboardingCalendar?.stageCounts || {},
+        profile: state.onboardingCalendar?.profile || null,
+        topObligations
+      },
+      complianceHealth: health.empty
+        ? null
+        : {
+            score: health.score,
+            overdue: health.overdue.length,
+            dueSoon: health.dueSoon.length,
+            onTrack: health.onTrack,
+            noDate: health.noDate
+          },
+      caPortal: {
+        rowCount: rows.length,
+        overdue,
+        pending,
+        inprogress,
+        filed,
+        sampleFilings: rows.slice(0, 10).map((r) => ({
+          client: r.client,
+          filing: r.filing,
+          dept: r.dept,
+          dueDate: r.dueDate,
+          status: r.status
+        }))
+      },
+      policyWatch: {
+        lastScanAt: state.policyWatch.scannedAt || "",
+        alertCount: Array.isArray(state.policyWatch.alerts) ? state.policyWatch.alerts.length : 0
+      },
+      reminders: {
+        trigger: state.reminders?.trigger || "",
+        companyName: state.reminders?.companyName || ""
+      }
+    }
+  };
+}
+
+async function syncBusinessContextToQdrant() {
+  if (state.view !== "dashboard") return;
+  try {
+    const body = {
+      companyName: state.auth.companyName,
+      fullName: state.auth.fullName,
+      ...buildBusinessSnapshotPayload()
+    };
+    const response = await fetch("/api/business-context/upsert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const data = await response.json();
+    if (!data.success) {
+      console.warn("Business context sync:", data.message || "skipped");
+    }
+  } catch (err) {
+    console.warn("Business context sync failed", err);
+  }
+}
+
+function createDefaultOnboardingProfileState() {
+  return {
+    companyType: "",
+    sector: "",
+    stateCode: "",
+    employeeBand: "",
+    gst: "",
+    deposits: "",
+    calendarItems: 0,
+    stageSummary: ""
+  };
+}
+
+function createDefaultOnboardingCalendarState(saved = {}) {
+  const s = saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+  return {
+    profile: s.profile || null,
+    stageCounts: s.stageCounts || { 1: 0, 2: 0, 3: 0 },
+    items: Array.isArray(s.items) ? s.items : []
+  };
+}
+
 const savedSession = readSession();
+
+function normalizeAuthFromSession(session) {
+  const base = createDefaultAuthState();
+  if (!session || typeof session !== "object") return base;
+  const merged = { ...base, ...session };
+  return {
+    ...merged,
+    aadhaarDigits: String(merged.aadhaarDigits ?? ""),
+    aadhaarDisplay: String(merged.aadhaarDisplay ?? ""),
+    fullName: String(merged.fullName ?? ""),
+    companyName: String(merged.companyName ?? ""),
+    otpSent: false,
+    otpInput: "",
+    referenceId: "",
+    message: "",
+    messageType: "info",
+    loading: false,
+    loadingStep: ""
+  };
+}
 
 const state = {
   flags: createFlags(),
   view: savedSession?.verified ? "dashboard" : "landing",
-  auth: savedSession ? { ...createDefaultAuthState(), ...savedSession, otpSent: false, otpInput: "", referenceId: "", message: "", messageType: "info", loading: false, loadingStep: "" } : createDefaultAuthState(),
+  auth: savedSession ? normalizeAuthFromSession(savedSession) : createDefaultAuthState(),
   activeToolTab: "onboard",
   caRows: [],
   caPortal: createDefaultCaPortalState(),
   reminders: createDefaultReminderState(savedSession, readReminderProfile()),
   billWorkspace: createDefaultBillWorkspace(readBillWorkspace()),
-  noticeWorkspace: createDefaultNoticeWorkspace(readNoticeWorkspace())
+  noticeWorkspace: createDefaultNoticeWorkspace(readNoticeWorkspace()),
+  assistant: createDefaultAssistantState(),
+  policyWatch: createDefaultPolicyWatchState(),
+  onboardingProfile: createDefaultOnboardingProfileState(),
+  onboardingCalendar: createDefaultOnboardingCalendarState(readOnboardingCalendar())
 };
 
 renderApp();
 
 function renderApp() {
-  root.innerHTML = state.view === "dashboard" ? renderDashboardPage(state) : renderLandingPage(state);
+  if (!root) return;
+  try {
+    root.innerHTML = state.view === "dashboard" ? renderDashboardPage(state) : renderLandingPage(state);
+  } catch (err) {
+    console.error("Complisure render failed:", err);
+    root.innerHTML = `
+      <div class="app-shell" style="padding:2rem;max-width:560px;margin:2rem auto;font-family:system-ui,sans-serif;line-height:1.55">
+        <h1 style="font-size:1.25rem;margin:0 0 1rem">Something went wrong loading the app</h1>
+        <p style="color:#64748b;margin:0 0 1rem">Try clearing site data for this origin or open the browser console for details.</p>
+        <pre style="font-size:12px;overflow:auto;background:#f1f5f9;padding:12px;border-radius:8px">${String(err?.message || err).replace(/</g, "&lt;")}</pre>
+      </div>`;
+    return;
+  }
   bindCommonEvents();
   if (state.view === "landing") {
     bindSignupEvents();
@@ -114,6 +365,7 @@ function renderApp() {
     bindDashboardEvents();
     bindLiveToolEvents();
     initializeCaStatusStyles();
+    syncComplianceHealthUi();
   }
 }
 
@@ -368,12 +620,82 @@ function bindDashboardEvents() {
     state.reminders = createDefaultReminderState(null, readReminderProfile());
     state.billWorkspace = createDefaultBillWorkspace(readBillWorkspace());
     state.noticeWorkspace = createDefaultNoticeWorkspace(readNoticeWorkspace());
+    state.assistant = createDefaultAssistantState();
+    state.policyWatch = createDefaultPolicyWatchState();
+    state.onboardingProfile = createDefaultOnboardingProfileState();
+    state.onboardingCalendar = createDefaultOnboardingCalendarState({});
     renderApp();
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
 
+  bindAssistantEvents();
+  bindPolicyWatchEvents();
   hydrateBillWorkspaceFromServer();
   hydrateCaRowsFromServer();
+}
+
+function bindPolicyWatchEvents() {
+  document.getElementById("policy-watch-scan-btn")?.addEventListener("click", handlePolicyWatchScan);
+  document.getElementById("policy-watch-seen-btn")?.addEventListener("click", markPolicyAlertsSeen);
+}
+
+async function handlePolicyWatchScan() {
+  if (state.policyWatch.loading) return;
+  state.policyWatch.loading = true;
+  state.policyWatch.error = "";
+  renderApp();
+
+  try {
+    await syncBusinessContextToQdrant();
+    const response = await postJson("/api/policy-watch/scan", {
+      companyName: state.auth.companyName,
+      fullName: state.auth.fullName,
+      founderName: state.auth.fullName,
+      onboardingProfile: buildPolicyProfileForScan()
+    });
+
+    state.policyWatch.loading = false;
+    state.policyWatch.alerts = Array.isArray(response.alerts) ? response.alerts : [];
+    state.policyWatch.feeds = Array.isArray(response.feeds) ? response.feeds : [];
+    state.policyWatch.scannedAt = response.scannedAt || null;
+    state.policyWatch.lastMessage = typeof response.message === "string" ? response.message : "";
+    state.policyWatch.agentMode = typeof response.agentMode === "string" ? response.agentMode : "";
+    state.policyWatch.agentTrace = Array.isArray(response.agentTrace) ? response.agentTrace : [];
+    state.policyWatch.situationAnalysis = response.situationAnalysis && typeof response.situationAnalysis === "object"
+      ? response.situationAnalysis
+      : null;
+    state.policyWatch.error = "";
+    persistPolicyWatch();
+    await syncBusinessContextToQdrant();
+  } catch (error) {
+    state.policyWatch.loading = false;
+    state.policyWatch.error = error.message || "Policy scan failed.";
+  }
+
+  renderApp();
+}
+
+function markPolicyAlertsSeen() {
+  const ids = state.policyWatch.alerts.map((a) => a.id).filter(Boolean);
+  state.policyWatch.seenIds = [...new Set([...state.policyWatch.seenIds, ...ids])];
+  persistPolicyWatch();
+  renderApp();
+}
+
+function bindAssistantEvents() {
+  document.getElementById("ai-chat-toggle-btn")?.addEventListener("click", () => {
+    state.assistant.open = !state.assistant.open;
+    state.assistant.message = "";
+    state.assistant.error = false;
+    renderApp();
+  });
+  document.getElementById("ai-chat-input")?.addEventListener("input", syncAssistantInputToState);
+  document.getElementById("ai-chat-send-btn")?.addEventListener("click", handleAssistantChat);
+}
+
+function syncAssistantInputToState() {
+  const input = document.getElementById("ai-chat-input");
+  state.assistant.input = input ? input.value : state.assistant.input;
 }
 
 function bindLiveToolEvents() {
@@ -394,6 +716,7 @@ function bindLiveToolEvents() {
   });
 
   document.getElementById("generate-calendar-btn")?.addEventListener("click", generateCalendar);
+  document.getElementById("view-calendar-btn")?.addEventListener("click", viewSavedCalendar);
   document.getElementById("calculate-penalty-btn")?.addEventListener("click", calculatePenalty);
   document.getElementById("notice-upload-input")?.addEventListener("change", handleNoticeFileSelection);
   document.getElementById("load-sample-notice-btn")?.addEventListener("click", () => {
@@ -405,7 +728,7 @@ function bindLiveToolEvents() {
     state.noticeWorkspace.sourceText = SAMPLE_NOTICE;
     state.noticeWorkspace.selectedFileName = "";
     state.noticeWorkspace.sourceLabel = "Pasted notice text";
-    state.noticeWorkspace.noticeMessage = "Sample notice loaded. Click interpret to analyze it with Groq.";
+    state.noticeWorkspace.noticeMessage = "Sample notice loaded. Click interpret to analyze it.";
     state.noticeWorkspace.noticeError = false;
     renderApp();
   });
@@ -551,7 +874,7 @@ function buildReminderPayload(overrides = {}) {
   };
 }
 
-function generateCalendar() {
+async function generateCalendar() {
   const type = document.getElementById("co-type")?.value || "";
   const sector = document.getElementById("co-sector")?.value || "";
   const stateCode = document.getElementById("co-state")?.value || "";
@@ -591,25 +914,142 @@ function generateCalendar() {
 
   if (!itemsContainer || !output || !heading || !summary) return;
 
-  itemsContainer.innerHTML = stagedItems.map((item) => `
-    <div class="cal-row">
-      <div class="dot dot-${item.urgency}"></div>
-      <div class="cal-info">
-        <div class="cal-name">${item.stageTag} · ${item.name}${item.dir ? ' <span class="dir-tag">DIR LIABILITY</span>' : ""}</div>
-        <div class="cal-dept">${item.dept}</div>
-      </div>
-      <div class="cal-due">${item.timelineLabel}</div>
-      <div class="cal-pen pen-${item.urgency === "g" ? "a" : item.urgency}">${item.pen}</div>
-    </div>
-  `).join("");
   const stageCounts = stagedItems.reduce((acc, item) => {
     acc[item.stageNumber] += 1;
     return acc;
   }, { 1: 0, 2: 0, 3: 0 });
-  heading.textContent = `Your compliance calendar · ${stagedItems.length} items personalised`;
-  summary.textContent = `✓ ${stagedItems.length} obligations identified for your profile (${type.toUpperCase()} · ${stateCode} · ${employeeBand} employees · GST: ${gst}). Stages: S1 Foundation ${stageCounts[1]}, S2 Operating ${stageCounts[2]}, S3 Strategic ${stageCounts[3]}.`;
+  const calendarPayload = {
+    profile: {
+      type,
+      sector,
+      stateCode,
+      employeeBand,
+      gst,
+      deposits
+    },
+    stageCounts,
+    items: stagedItems
+  };
+  state.onboardingCalendar = calendarPayload;
+  persistOnboardingCalendar();
+  renderOnboardingCalendar(calendarPayload, true);
+  state.onboardingProfile = {
+    companyType: type,
+    sector,
+    stateCode,
+    employeeBand,
+    gst,
+    deposits,
+    calendarItems: stagedItems.length,
+    stageSummary: `S1:${stageCounts[1]}|S2:${stageCounts[2]}|S3:${stageCounts[3]}`
+  };
+
+  try {
+    await postJson("/api/onboarding/profile", {
+      companyName: state.auth.companyName,
+      fullName: state.auth.fullName,
+      profile: state.onboardingProfile
+    });
+  } catch {
+    // Ignore storage failure so calendar generation remains responsive.
+  }
+
+  await syncBusinessContextToQdrant();
+}
+
+function viewSavedCalendar() {
+  const saved = state.onboardingCalendar || createDefaultOnboardingCalendarState(readOnboardingCalendar());
+  if (!saved || !Array.isArray(saved.items) || saved.items.length === 0) {
+    window.alert("No saved calendar yet. Generate one first.");
+    return;
+  }
+
+  state.onboardingCalendar = saved;
+  renderOnboardingCalendar(saved, true);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function syncComplianceHealthUi() {
+  const items = state.onboardingCalendar?.items || [];
+  const health = computeComplianceHealth(items);
+  const wrap = document.getElementById("dash-health-wrap");
+  if (wrap) {
+    wrap.innerHTML = renderComplianceHealthDashboardHtml(health);
+  }
+  const calEl = document.getElementById("cal-health-inline");
+  if (calEl) {
+    calEl.outerHTML = renderComplianceHealthInlineHtml(health);
+  }
+}
+
+function renderOnboardingCalendar(calendar, scrollIntoView = false) {
+  const itemsContainer = document.getElementById("cal-items");
+  const output = document.getElementById("cal-output");
+  const heading = document.getElementById("cal-heading");
+  const summary = document.getElementById("cal-summary");
+  if (!itemsContainer || !output || !heading || !summary) return;
+
+  const items = Array.isArray(calendar?.items) ? calendar.items : [];
+  const profile = calendar?.profile || {};
+  const stageCounts = calendar?.stageCounts || { 1: 0, 2: 0, 3: 0 };
+
+  itemsContainer.innerHTML = items.map((item) => {
+    const deadline = escapeHtml(item.deadlineLabel || item.timelineLabel || item.due || "Deadline not available");
+    const timeline = escapeHtml(item.timelineLabel || item.due || "Timeline unavailable");
+    const formHref = String(item.formUrl || "").trim();
+    const safeFormHref = /^https?:\/\//i.test(formHref) ? formHref : "";
+    const formLink = safeFormHref
+      ? `<a class="cal-form-link" href="${escapeHtml(safeFormHref)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.formLabel || "Open filing portal")} →</a>`
+      : "";
+    const cls = classifyCalendarItem(item);
+    const rowMod =
+      cls.status === "overdue"
+        ? "cal-row--overdue"
+        : cls.status === "soon"
+          ? "cal-row--soon"
+          : cls.status === "ok"
+            ? "cal-row--ok"
+            : "cal-row--unknown";
+    const statusBadge =
+      cls.status === "overdue"
+        ? `<span class="cal-status cal-status--overdue" title="Past due">Overdue${cls.days != null ? ` · ${-cls.days}d` : ""}</span>`
+        : cls.status === "soon"
+          ? `<span class="cal-status cal-status--soon" title="Due soon">Due ≤${COMPLIANCE_SOON_DAYS}d${cls.days != null ? ` · ${cls.days}d` : ""}</span>`
+          : cls.status === "ok"
+            ? `<span class="cal-status cal-status--ok">On track</span>`
+            : `<span class="cal-status cal-status--unknown">Date TBD</span>`;
+    return `
+    <div class="cal-row ${rowMod}">
+      <div class="cal-row-top">
+        <div class="dot dot-${item.urgency}"></div>
+        <div class="cal-info">
+          <div class="cal-name">${escapeHtml(item.stageTag)} · ${escapeHtml(item.name)}${item.dir ? ' <span class="dir-tag">DIR LIABILITY</span>' : ""} ${statusBadge}</div>
+          <div class="cal-dept">${escapeHtml(item.dept)}</div>
+        </div>
+        <div class="cal-due-col">
+          <div class="cal-deadline"><span class="cal-deadline-k">Deadline</span> ${deadline}</div>
+          <div class="cal-timeline-note">${timeline}</div>
+        </div>
+        <div class="cal-pen pen-${item.urgency === "g" ? "a" : item.urgency}">${escapeHtml(item.pen)}</div>
+      </div>
+      ${formLink ? `<div class="cal-row-actions">${formLink}</div>` : ""}
+    </div>`;
+  }).join("");
+
+  heading.textContent = `Your compliance calendar · ${items.length} items personalised`;
+  summary.textContent = `✓ ${items.length} obligations identified for your profile (${String(profile.type || "").toUpperCase()} · ${profile.stateCode || "NA"} · ${profile.employeeBand || "NA"} employees · GST: ${profile.gst || "none"}). Stages: S1 Foundation ${stageCounts[1] || 0}, S2 Operating ${stageCounts[2] || 0}, S3 Strategic ${stageCounts[3] || 0}.`;
   output.style.display = "block";
-  output.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  if (scrollIntoView) {
+    output.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+  syncComplianceHealthUi();
 }
 
 function buildStageTimelineCalendar(items, profile) {
@@ -625,7 +1065,8 @@ function buildStageTimelineCalendar(items, profile) {
         stageRank: stage.number,
         timelineDate: timeline.isoDate,
         timelineRank: timeline.sortRank,
-        timelineLabel: timeline.label
+        timelineLabel: timeline.label,
+        deadlineLabel: timeline.deadlineLabel
       };
     })
     .sort((left, right) => {
@@ -669,7 +1110,22 @@ function resolveTimeline(rawDue, today) {
   const dueText = String(rawDue || "").trim();
   const lowered = dueText.toLowerCase();
   if (!dueText) {
-    return { label: "Timeline unavailable", isoDate: "", sortRank: Number.MAX_SAFE_INTEGER - 1 };
+    return {
+      label: "Timeline unavailable",
+      deadlineLabel: "Not stated",
+      isoDate: "",
+      sortRank: Number.MAX_SAFE_INTEGER - 1
+    };
+  }
+
+  if (lowered.includes("last day") && lowered.includes("month")) {
+    const nextDate = nextLastDayOfMonthUtc(today);
+    return {
+      label: `${dueText} · next: ${formatHumanDate(nextDate)} (${daysFromToday(today, nextDate)}d)`,
+      deadlineLabel: formatHumanDate(nextDate),
+      isoDate: nextDate,
+      sortRank: dateToRank(nextDate)
+    };
   }
 
   if (lowered.includes("every month") || lowered.includes("monthly")) {
@@ -677,6 +1133,7 @@ function resolveTimeline(rawDue, today) {
     const nextDate = nextMonthlyDate(today, day);
     return {
       label: `${dueText} · next: ${formatHumanDate(nextDate)} (${daysFromToday(today, nextDate)}d)`,
+      deadlineLabel: formatHumanDate(nextDate),
       isoDate: nextDate,
       sortRank: dateToRank(nextDate)
     };
@@ -687,6 +1144,7 @@ function resolveTimeline(rawDue, today) {
     const target = addDays(today, offsetDays);
     return {
       label: `${dueText} · target: ${formatHumanDate(target)} (${offsetDays}d)`,
+      deadlineLabel: formatHumanDate(target),
       isoDate: target,
       sortRank: dateToRank(target)
     };
@@ -704,12 +1162,18 @@ function resolveTimeline(rawDue, today) {
     }
     return {
       label: `${dueText} · est: ${formatHumanDate(candidate)} (${daysFromToday(today, candidate)}d)`,
+      deadlineLabel: formatHumanDate(candidate),
       isoDate: candidate,
       sortRank: dateToRank(candidate)
     };
   }
 
-  return { label: `${dueText} · timeline TBD`, isoDate: "", sortRank: Number.MAX_SAFE_INTEGER };
+  return {
+    label: `${dueText} · timeline TBD`,
+    deadlineLabel: dueText,
+    isoDate: "",
+    sortRank: Number.MAX_SAFE_INTEGER
+  };
 }
 
 function pickDayFromDueText(value) {
@@ -761,6 +1225,18 @@ function nextMonthlyDate(today, day) {
   return nextDate;
 }
 
+function nextLastDayOfMonthUtc(today) {
+  const y = today.getUTCFullYear();
+  const m = today.getUTCMonth();
+  const lastThisMonth = new Date(Date.UTC(y, m + 1, 0));
+  const isoThis = formatIsoDate(lastThisMonth);
+  if (isoThis >= formatIsoDate(today)) {
+    return isoThis;
+  }
+  const lastNextMonth = new Date(Date.UTC(y, m + 2, 0));
+  return formatIsoDate(lastNextMonth);
+}
+
 function isoDate(year, monthIndex, day) {
   return `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
@@ -785,6 +1261,7 @@ function dateToRank(iso) {
 function calculatePenalty() {
   const form = document.getElementById("pen-form")?.value || "";
   const days = Number.parseInt(document.getElementById("pen-days")?.value || "1", 10) || 1;
+  const companyType = document.getElementById("pen-cotype")?.value || "pvt";
   const result = document.getElementById("pen-result-col");
 
   if (!form || !result) {
@@ -795,16 +1272,18 @@ function calculatePenalty() {
   const details = PENALTY_DATA[form];
   if (!details) return;
 
-  const current = details.base + details.daily * days;
-  const in7 = details.base + details.daily * (days + 7);
-  const in30 = details.base + details.daily * (days + 30);
+  const current = computePenaltyAmount({ details, daysOverdue: days, companyType });
+  const in7 = computePenaltyAmount({ details, daysOverdue: days + 7, companyType });
+  const in30 = computePenaltyAmount({ details, daysOverdue: days + 30, companyType });
   const cap = (value) => (details.max ? Math.min(value, details.max) : value);
   const formatCurrency = (value) => `₹${Math.round(cap(value)).toLocaleString("en-IN")}`;
   const width = Math.min(100, Math.round((cap(current) / Math.max(cap(in30), 1)) * 100));
+  const companyTypeLabel = penaltyCompanyTypeLabel(companyType);
+  const explanation = describePenaltyModel(details, companyType);
 
   result.innerHTML = `
     <div class="penalty-amount">${formatCurrency(current)}</div>
-    <div class="penalty-label">${days} day${days !== 1 ? "s" : ""} overdue · ${form}</div>
+    <div class="penalty-label">${days} day${days !== 1 ? "s" : ""} overdue · ${form} · ${companyTypeLabel}</div>
     <div class="pen-bar-label" style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Penalty escalation</div>
     <div class="pen-bar-track"><div class="pen-bar-fill" style="width:${width}%"></div></div>
     <div class="pen-timeline">
@@ -813,8 +1292,68 @@ function calculatePenalty() {
       <div class="pen-t-row"><span class="pen-t-label">In 30 more days</span><span class="pen-t-val">${formatCurrency(in30)}</span></div>
     </div>
     ${details.dir ? `<div class="dir-badge">⚡ Director personally liable for this penalty</div>` : ""}
-    <div style="margin-top:1rem;font-size:12px;color:var(--text3);line-height:1.5">${details.note}${details.max ? ` · Capped at ₹${details.max.toLocaleString("en-IN")}` : ""}</div>
+    <div style="margin-top:1rem;font-size:12px;color:var(--text3);line-height:1.5">${explanation}</div>
+    <div style="margin-top:.35rem;font-size:12px;color:var(--text3);line-height:1.5">${details.note}${details.max ? ` · Capped at ₹${details.max.toLocaleString("en-IN")}` : ""}</div>
   `;
+}
+
+function computePenaltyAmount({ details, daysOverdue, companyType }) {
+  const base = Number(details.base || 0);
+  const daily = Number(details.daily || 0);
+  const normalizedDays = Math.max(0, Number(daysOverdue) || 0);
+  const monthlyInterestRate = inferMonthlyInterestRate(details.note);
+  const typeMultiplier = penaltyCompanyTypeMultiplier(companyType, details);
+
+  let amount = base + (daily * normalizedDays);
+
+  // Apply compounding-style monthly interest only when the rule hints interest-based exposure.
+  if (monthlyInterestRate > 0) {
+    const months = normalizedDays / 30;
+    amount *= Math.pow(1 + monthlyInterestRate, months);
+  }
+
+  amount *= typeMultiplier;
+  if (details.max) {
+    amount = Math.min(amount, Number(details.max));
+  }
+  return amount;
+}
+
+function inferMonthlyInterestRate(note) {
+  const text = String(note || "").toLowerCase();
+  if (text.includes("12%")) return 0.01;
+  if (text.includes("1.25%")) return 0.0125;
+  if (text.includes("1%")) return 0.01;
+  return 0;
+}
+
+function penaltyCompanyTypeMultiplier(companyType, details) {
+  const type = String(companyType || "pvt");
+  const smallCompanyDiscount = details.dir ? 0.9 : 0.8;
+  if (type === "small") return smallCompanyDiscount;
+  if (type === "llp") return details.dir ? 0.95 : 0.9;
+  return 1;
+}
+
+function penaltyCompanyTypeLabel(companyType) {
+  if (companyType === "llp") return "LLP";
+  if (companyType === "small") return "Small company";
+  return "Pvt Ltd / OPC";
+}
+
+function describePenaltyModel(details, companyType) {
+  const rate = inferMonthlyInterestRate(details.note);
+  const multiplier = penaltyCompanyTypeMultiplier(companyType, details);
+  const parts = [
+    `Computed using base ₹${Number(details.base || 0).toLocaleString("en-IN")} + daily ₹${Number(details.daily || 0).toLocaleString("en-IN")}`
+  ];
+  if (rate > 0) {
+    parts.push(`plus monthly interest ${(rate * 100).toFixed(2)}%`);
+  }
+  if (multiplier !== 1) {
+    parts.push(`with ${Math.round((1 - multiplier) * 100)}% ${companyType === "small" ? "small-company relief" : "entity adjustment"}`);
+  }
+  return parts.join(" ");
 }
 
 function syncNoticeFormToState() {
@@ -859,8 +1398,8 @@ async function interpretNotice() {
   state.noticeWorkspace.loading = true;
   state.noticeWorkspace.noticeError = false;
   state.noticeWorkspace.noticeMessage = file
-    ? `Analyzing ${file.name} with Groq...`
-    : "Analyzing pasted notice text with Groq...";
+    ? `Analyzing ${file.name}...`
+    : "Analyzing pasted notice text...";
   renderApp();
 
   try {
@@ -924,7 +1463,7 @@ async function handleNoticeChat() {
 
   state.noticeWorkspace.chatLoading = true;
   state.noticeWorkspace.noticeError = false;
-  state.noticeWorkspace.noticeMessage = "Asking Groq your follow-up question...";
+  state.noticeWorkspace.noticeMessage = "Analyzing your follow-up question...";
   renderApp();
 
   try {
@@ -958,6 +1497,55 @@ async function handleNoticeChat() {
     state.noticeWorkspace.chatLoading = false;
     state.noticeWorkspace.noticeError = true;
     state.noticeWorkspace.noticeMessage = error.message || "Could not answer the follow-up question.";
+    renderApp();
+  }
+}
+
+async function handleAssistantChat() {
+  syncAssistantInputToState();
+  const question = (state.assistant.input || "").trim();
+  if (!question) {
+    state.assistant.error = true;
+    state.assistant.message = "Enter a compliance question first.";
+    renderApp();
+    return;
+  }
+
+  state.assistant.loading = true;
+  state.assistant.error = false;
+  state.assistant.message = "Thinking...";
+  renderApp();
+
+  try {
+    const response = await postJson("/api/assistant/chat", {
+      question,
+      companyName: state.auth.companyName,
+      founderName: state.auth.fullName,
+      reminders: state.reminders,
+      caRows: state.caRows,
+      onboardingProfile: state.onboardingProfile
+    });
+
+    state.assistant.history = [
+      ...state.assistant.history,
+      { role: "user", content: question },
+      {
+        role: "assistant",
+        content: response.answer || "No answer returned.",
+        upcomingTasks: Array.isArray(response.upcomingTasks) ? response.upcomingTasks : []
+      }
+    ];
+    state.assistant.loading = false;
+    state.assistant.input = "";
+    state.assistant.open = true;
+    state.assistant.error = false;
+    state.assistant.message = response.caution || `Urgency: ${(response.urgency || "medium").toUpperCase()}`;
+    renderApp();
+    document.getElementById("ai-chat-log")?.scrollTo({ top: 99999, behavior: "smooth" });
+  } catch (error) {
+    state.assistant.loading = false;
+    state.assistant.error = true;
+    state.assistant.message = error.message || "Could not reach AI assistant.";
     renderApp();
   }
 }
@@ -1018,6 +1606,7 @@ async function hydrateCaRowsFromServer(force = false) {
     state.caPortal.error = false;
     state.caPortal.message = response.message || "CA portal synced with Qdrant Cloud.";
     renderApp();
+    await syncBusinessContextToQdrant();
   } catch (error) {
     state.caPortal.hydrating = false;
     state.caPortal.hydrated = true;
@@ -1192,7 +1781,7 @@ async function handleBillScan() {
 
   state.billWorkspace.scanLoading = true;
   state.billWorkspace.scanError = false;
-  state.billWorkspace.scanMessage = `Scanning ${file.name} with Groq...`;
+  state.billWorkspace.scanMessage = `Scanning ${file.name}...`;
   state.billWorkspace.selectedFileName = file.name;
   renderApp();
 
@@ -1459,12 +2048,7 @@ function persistReminderProfile() {
 }
 
 function readReminderProfile() {
-  try {
-    const raw = localStorage.getItem("complisure-reminder-profile");
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
+  return parseStoredObject(localStorage.getItem("complisure-reminder-profile"), {});
 }
 
 function persistBillWorkspace() {
@@ -1475,12 +2059,7 @@ function persistBillWorkspace() {
 }
 
 function readBillWorkspace() {
-  try {
-    const raw = localStorage.getItem("complisure-bill-workspace");
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
+  return parseStoredObject(localStorage.getItem("complisure-bill-workspace"), {});
 }
 
 function persistNoticeWorkspace() {
@@ -1493,12 +2072,19 @@ function persistNoticeWorkspace() {
 }
 
 function readNoticeWorkspace() {
-  try {
-    const raw = localStorage.getItem("complisure-notice-workspace");
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
+  return parseStoredObject(localStorage.getItem("complisure-notice-workspace"), {});
+}
+
+function persistOnboardingCalendar() {
+  localStorage.setItem("complisure-onboarding-calendar", JSON.stringify({
+    profile: state.onboardingCalendar?.profile || null,
+    stageCounts: state.onboardingCalendar?.stageCounts || { 1: 0, 2: 0, 3: 0 },
+    items: Array.isArray(state.onboardingCalendar?.items) ? state.onboardingCalendar.items : []
+  }));
+}
+
+function readOnboardingCalendar() {
+  return parseStoredObject(localStorage.getItem("complisure-onboarding-calendar"), {});
 }
 
 async function fetchJson(url) {

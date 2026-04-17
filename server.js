@@ -13,6 +13,9 @@ const ROOT_DIR = process.cwd();
 const QDRANT_URL = safeString(process.env.QDRANT_URL).replace(/\/+$/, "");
 const QDRANT_API_KEY = safeString(process.env.QDRANT_API_KEY);
 const QDRANT_CA_COLLECTION = safeString(process.env.QDRANT_CA_COLLECTION) || "complisure_ca_tasks";
+const QDRANT_ONBOARDING_COLLECTION = safeString(process.env.QDRANT_ONBOARDING_COLLECTION) || "complisure_onboarding_profiles";
+const QDRANT_BUSINESS_CONTEXT_COLLECTION =
+  safeString(process.env.QDRANT_BUSINESS_CONTEXT_COLLECTION) || "complisure_business_context";
 const RESEND_API_KEY = safeString(process.env.RESEND_API_KEY);
 const RESEND_FROM_EMAIL = safeString(process.env.RESEND_FROM_EMAIL) || "CompliSure <onboarding@resend.dev>";
 const RESEND_BASE_URL = (safeString(process.env.RESEND_BASE_URL) || "https://api.resend.com").replace(/\/+$/, "");
@@ -30,7 +33,11 @@ const BILL_SCAN_ALLOWED_MIME_TYPES = new Set([
   "image/heif"
 ]);
 const DEFAULT_CA_VECTOR_SIZE = 8;
+const DEFAULT_ONBOARDING_VECTOR_SIZE = 8;
+const DEFAULT_BUSINESS_CONTEXT_VECTOR_SIZE = 8;
 let caVectorSize = DEFAULT_CA_VECTOR_SIZE;
+let onboardingVectorSize = DEFAULT_ONBOARDING_VECTOR_SIZE;
+let businessContextVectorSize = DEFAULT_BUSINESS_CONTEXT_VECTOR_SIZE;
 
 const MS_IN_DAY = 24 * 60 * 60 * 1000;
 const REMINDER_SCHEDULE = {
@@ -325,6 +332,156 @@ app.post("/api/notices/chat", async (req, res) => {
   } catch (error) {
     console.error("Notice chat proxy error:", error);
     res.status(502).json({ error: "Could not reach notice follow-up service." });
+  }
+});
+
+app.post("/api/assistant/chat", async (req, res) => {
+  try {
+    const workspaceKey = buildCaWorkspaceKey({
+      companyName: safeString(req.body?.companyName),
+      fullName: safeString(req.body?.fullName || req.body?.founderName)
+    });
+    let onboardingProfile = normalizeOnboardingProfile(req.body?.onboardingProfile || {});
+    try {
+      const storedProfile = await readOnboardingProfile(workspaceKey);
+      onboardingProfile = {
+        ...onboardingProfile,
+        ...storedProfile
+      };
+    } catch (error) {
+      console.error("Onboarding profile fetch skipped:", error.message || error);
+    }
+
+    const response = await fetch(`${BRAIN_SERVICE_URL}/assistant/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        question: safeString(req.body?.question),
+        company_name: safeString(req.body?.companyName),
+        founder_name: safeString(req.body?.founderName),
+        reminders: req.body?.reminders || {},
+        ca_rows: Array.isArray(req.body?.caRows) ? req.body.caRows : [],
+        onboarding_profile: onboardingProfile || {}
+      })
+    });
+
+    const payload = await readJsonResponse(response);
+    res.status(response.status).json(payload);
+  } catch (error) {
+    console.error("Assistant chat proxy error:", error);
+    res.status(502).json({ error: "Could not reach AI assistant service." });
+  }
+});
+
+app.post("/api/policy-watch/scan", async (req, res) => {
+  try {
+    let onboardingProfile = normalizeOnboardingProfile(req.body?.onboardingProfile || {});
+    const workspaceKey = buildCaWorkspaceKey({
+      companyName: safeString(req.body?.companyName),
+      fullName: safeString(req.body?.fullName || req.body?.founderName)
+    });
+    try {
+      const storedProfile = await readOnboardingProfile(workspaceKey);
+      onboardingProfile = {
+        ...onboardingProfile,
+        ...storedProfile
+      };
+    } catch (error) {
+      console.error("Policy watch profile fetch skipped:", error.message || error);
+    }
+
+    let businessContext = {};
+    try {
+      businessContext = await readBusinessContextSnapshot(workspaceKey);
+    } catch (error) {
+      console.error("Policy watch business context fetch skipped:", error.message || error);
+    }
+
+    let caPortalLive = {
+      rowCount: 0,
+      overdue: 0,
+      pending: 0,
+      inprogress: 0,
+      filed: 0,
+      upcomingFilings: []
+    };
+    try {
+      const rows = await readCaRows(workspaceKey);
+      caPortalLive = summarizeCaRowsForPolicy(rows);
+    } catch (error) {
+      console.error("Policy watch CA rows fetch skipped:", error.message || error);
+    }
+
+    const response = await fetch(`${BRAIN_SERVICE_URL}/policy-watch/scan`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        company_name: safeString(req.body?.companyName),
+        founder_name: safeString(req.body?.fullName || req.body?.founderName),
+        onboarding_profile: onboardingProfile || {},
+        business_context: {
+          ...businessContext,
+          caPortalLive,
+          serverMergedAt: new Date().toISOString()
+        }
+      })
+    });
+
+    const payload = await readJsonResponse(response);
+    res.status(response.status).json(payload);
+  } catch (error) {
+    console.error("Policy watch proxy error:", error);
+    res.status(502).json({ error: "Could not reach policy watch service." });
+  }
+});
+
+app.post("/api/onboarding/profile", async (req, res) => {
+  try {
+    const workspaceKey = buildCaWorkspaceKey({
+      companyName: safeString(req.body?.companyName),
+      fullName: safeString(req.body?.fullName || req.body?.founderName)
+    });
+    const profile = normalizeOnboardingProfile(req.body?.profile);
+    if (!profile.companyType || !profile.stateCode || !profile.employeeBand) {
+      res.status(400).json({ error: "Company type, state, and employee band are required." });
+      return;
+    }
+
+    await upsertOnboardingProfile(workspaceKey, profile);
+    res.status(200).json({
+      success: true,
+      workspaceKey,
+      profile
+    });
+  } catch (error) {
+    console.error("Onboarding profile save error:", error);
+    res.status(502).json({ error: error.message || "Could not store onboarding profile." });
+  }
+});
+
+app.post("/api/business-context/upsert", async (req, res) => {
+  try {
+    const workspaceKey = buildCaWorkspaceKey({
+      companyName: safeString(req.body?.companyName),
+      fullName: safeString(req.body?.fullName || req.body?.founderName)
+    });
+    const snapshot = req.body?.snapshot && typeof req.body.snapshot === "object" ? req.body.snapshot : req.body || {};
+    await upsertBusinessContextSnapshot(workspaceKey, {
+      companyName: safeString(req.body?.companyName),
+      founderName: safeString(req.body?.fullName || req.body?.founderName),
+      ...snapshot
+    });
+    res.status(200).json({ success: true, workspaceKey });
+  } catch (error) {
+    console.error("Business context upsert error:", error);
+    res.status(200).json({
+      success: false,
+      message: error.message || "Could not store business context in Qdrant."
+    });
   }
 });
 
@@ -702,6 +859,232 @@ async function ensureCaCollection() {
   });
 }
 
+async function ensureOnboardingCollection() {
+  ensureQdrantConfigured();
+
+  try {
+    const existing = await qdrantRequest("GET", `/collections/${encodeURIComponent(QDRANT_ONBOARDING_COLLECTION)}`);
+    onboardingVectorSize = inferCollectionVectorSize(existing) || onboardingVectorSize;
+    return;
+  } catch (error) {
+    if (error.statusCode && error.statusCode !== 404) {
+      throw error;
+    }
+  }
+
+  await qdrantRequest("PUT", `/collections/${encodeURIComponent(QDRANT_ONBOARDING_COLLECTION)}`, {
+    vectors: {
+      size: onboardingVectorSize,
+      distance: "Cosine"
+    }
+  });
+}
+
+async function upsertOnboardingProfile(workspaceKey, profile) {
+  await ensureOnboardingCollection();
+  const normalized = normalizeOnboardingProfile(profile);
+  const payload = {
+    workspaceKey,
+    profile: normalized,
+    updatedAt: new Date().toISOString()
+  };
+  const point = {
+    id: buildDeterministicUuid(`onboarding|${workspaceKey}`),
+    payload,
+    vector: buildDeterministicVector(`onboarding|${workspaceKey}|${JSON.stringify(normalized)}`, onboardingVectorSize)
+  };
+
+  await qdrantRequest("PUT", `/collections/${encodeURIComponent(QDRANT_ONBOARDING_COLLECTION)}/points?wait=true`, {
+    points: [point]
+  });
+}
+
+async function readOnboardingProfile(workspaceKey) {
+  await ensureOnboardingCollection();
+
+  const response = await qdrantRequest("POST", `/collections/${encodeURIComponent(QDRANT_ONBOARDING_COLLECTION)}/points/scroll`, {
+    limit: 1,
+    with_payload: true,
+    with_vector: false,
+    filter: {
+      must: [
+        {
+          key: "workspaceKey",
+          match: {
+            value: workspaceKey
+          }
+        }
+      ]
+    }
+  });
+
+  const points = Array.isArray(response?.result?.points) ? response.result.points : [];
+  const payload = points[0]?.payload || {};
+  return normalizeOnboardingProfile(payload.profile || {});
+}
+
+async function ensureBusinessContextCollection() {
+  ensureQdrantConfigured();
+
+  try {
+    const existing = await qdrantRequest("GET", `/collections/${encodeURIComponent(QDRANT_BUSINESS_CONTEXT_COLLECTION)}`);
+    businessContextVectorSize = inferCollectionVectorSize(existing) || businessContextVectorSize;
+    return;
+  } catch (error) {
+    if (error.statusCode && error.statusCode !== 404) {
+      throw error;
+    }
+  }
+
+  await qdrantRequest("PUT", `/collections/${encodeURIComponent(QDRANT_BUSINESS_CONTEXT_COLLECTION)}`, {
+    vectors: {
+      size: businessContextVectorSize,
+      distance: "Cosine"
+    }
+  });
+}
+
+function normalizeBusinessSnapshot(raw) {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const cal = source.calendar && typeof source.calendar === "object" ? source.calendar : {};
+  const ch = source.complianceHealth && typeof source.complianceHealth === "object" ? source.complianceHealth : null;
+  const ca = source.caPortal && typeof source.caPortal === "object" ? source.caPortal : {};
+  const pw = source.policyWatch && typeof source.policyWatch === "object" ? source.policyWatch : {};
+  const rem = source.reminders && typeof source.reminders === "object" ? source.reminders : {};
+  return {
+    companyName: safeString(source.companyName),
+    founderName: safeString(source.founderName || source.fullName),
+    onboardingProfile: normalizeOnboardingProfile(source.onboardingProfile || source.profile),
+    calendar: {
+      itemCount: Number.parseInt(cal.itemCount, 10) || 0,
+      stageCounts: cal.stageCounts && typeof cal.stageCounts === "object" ? cal.stageCounts : {},
+      profile: cal.profile && typeof cal.profile === "object" ? cal.profile : null,
+      topObligations: Array.isArray(cal.topObligations) ? cal.topObligations.slice(0, 20) : []
+    },
+    complianceHealth: ch
+      ? {
+          score: Number.isFinite(Number(ch.score)) ? Number(ch.score) : null,
+          overdue: Number.parseInt(ch.overdue, 10) || 0,
+          dueSoon: Number.parseInt(ch.dueSoon, 10) || 0,
+          onTrack: Number.parseInt(ch.onTrack, 10) || 0,
+          noDate: Number.parseInt(ch.noDate, 10) || 0
+        }
+      : null,
+    caPortal: {
+      rowCount: Number.parseInt(ca.rowCount, 10) || 0,
+      overdue: Number.parseInt(ca.overdue, 10) || 0,
+      pending: Number.parseInt(ca.pending, 10) || 0,
+      inprogress: Number.parseInt(ca.inprogress, 10) || 0,
+      filed: Number.parseInt(ca.filed, 10) || 0,
+      sampleFilings: Array.isArray(ca.sampleFilings) ? ca.sampleFilings.slice(0, 12) : []
+    },
+    policyWatch: {
+      lastScanAt: safeString(pw.lastScanAt),
+      alertCount: Number.parseInt(pw.alertCount, 10) || 0
+    },
+    reminders: {
+      trigger: safeString(rem.trigger),
+      companyName: safeString(rem.companyName)
+    },
+    updatedAt: safeString(source.updatedAt) || new Date().toISOString()
+  };
+}
+
+function buildBusinessSnapshotEmbeddingText(snapshot) {
+  const lines = [
+    safeString(snapshot.companyName),
+    safeString(snapshot.founderName),
+    JSON.stringify(snapshot.onboardingProfile || {}),
+    `calendar:${snapshot.calendar?.itemCount || 0}`,
+    `health:${snapshot.complianceHealth?.score ?? "na"}`,
+    `ca_rows:${snapshot.caPortal?.rowCount || 0}|overdue:${snapshot.caPortal?.overdue || 0}`,
+    `policy_alerts:${snapshot.policyWatch?.alertCount || 0}`
+  ];
+  return lines.join("\n");
+}
+
+async function upsertBusinessContextSnapshot(workspaceKey, snapshot) {
+  await ensureBusinessContextCollection();
+  const normalized = normalizeBusinessSnapshot({ ...snapshot, updatedAt: new Date().toISOString() });
+  const payload = {
+    workspaceKey,
+    kind: "business_context_v1",
+    snapshot: normalized,
+    updatedAt: normalized.updatedAt
+  };
+  const embedText = buildBusinessSnapshotEmbeddingText(normalized);
+  const point = {
+    id: buildDeterministicUuid(`business-context|${workspaceKey}`),
+    payload,
+    vector: buildDeterministicVector(`${workspaceKey}|${embedText}`, businessContextVectorSize)
+  };
+
+  await qdrantRequest("PUT", `/collections/${encodeURIComponent(QDRANT_BUSINESS_CONTEXT_COLLECTION)}/points?wait=true`, {
+    points: [point]
+  });
+}
+
+async function readBusinessContextSnapshot(workspaceKey) {
+  await ensureBusinessContextCollection();
+
+  const response = await qdrantRequest("POST", `/collections/${encodeURIComponent(QDRANT_BUSINESS_CONTEXT_COLLECTION)}/points/scroll`, {
+    limit: 1,
+    with_payload: true,
+    with_vector: false,
+    filter: {
+      must: [
+        {
+          key: "workspaceKey",
+          match: {
+            value: workspaceKey
+          }
+        }
+      ]
+    }
+  });
+
+  const points = Array.isArray(response?.result?.points) ? response.result.points : [];
+  const snap = points[0]?.payload?.snapshot;
+  if (!snap || typeof snap !== "object") {
+    return {};
+  }
+  return normalizeBusinessSnapshot(snap);
+}
+
+function summarizeCaRowsForPolicy(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  let overdue = 0;
+  let pending = 0;
+  let filed = 0;
+  let inprogress = 0;
+  for (const row of list) {
+    const status = safeString(row?.status).toLowerCase();
+    if (status === "overdue") {
+      overdue += 1;
+    } else if (status === "pending") {
+      pending += 1;
+    } else if (status === "filed") {
+      filed += 1;
+    } else if (status === "inprogress") {
+      inprogress += 1;
+    }
+  }
+  return {
+    rowCount: list.length,
+    overdue,
+    pending,
+    inprogress,
+    filed,
+    upcomingFilings: list.slice(0, 14).map((row) => ({
+      client: safeString(row?.client),
+      filing: safeString(row?.filing),
+      dept: safeString(row?.dept),
+      dueDate: safeString(row?.dueDate),
+      status: safeString(row?.status)
+    }))
+  };
+}
+
 async function readCaRows(workspaceKey) {
   await ensureCaCollection();
 
@@ -848,10 +1231,14 @@ function sortCaRows(left, right) {
   return (left.client || "").localeCompare(right.client || "");
 }
 
-function buildDeterministicVector(text) {
+function buildDeterministicVector(text, requestedSize) {
   const digest = createHash("sha256").update(text).digest();
   const vector = [];
-  const size = Number.isInteger(caVectorSize) && caVectorSize > 0 ? caVectorSize : DEFAULT_CA_VECTOR_SIZE;
+  const size = Number.isInteger(requestedSize) && requestedSize > 0
+    ? requestedSize
+    : Number.isInteger(caVectorSize) && caVectorSize > 0
+      ? caVectorSize
+      : DEFAULT_CA_VECTOR_SIZE;
 
   for (let index = 0; index < size; index += 1) {
     const raw = digest[index] / 255;
@@ -859,6 +1246,31 @@ function buildDeterministicVector(text) {
   }
 
   return vector;
+}
+
+function buildDeterministicUuid(text) {
+  const digest = createHash("sha256").update(text).digest("hex");
+  const part1 = digest.slice(0, 8);
+  const part2 = digest.slice(8, 12);
+  const part3 = `4${digest.slice(13, 16)}`;
+  const part4Nibble = (Number.parseInt(digest.slice(16, 17), 16) & 0x3) | 0x8;
+  const part4 = `${part4Nibble.toString(16)}${digest.slice(17, 20)}`;
+  const part5 = digest.slice(20, 32);
+  return `${part1}-${part2}-${part3}-${part4}-${part5}`;
+}
+
+function normalizeOnboardingProfile(profile) {
+  const source = profile || {};
+  return {
+    companyType: safeString(source.companyType || source.type),
+    sector: safeString(source.sector),
+    stateCode: safeString(source.stateCode),
+    employeeBand: safeString(source.employeeBand),
+    gst: safeString(source.gst),
+    deposits: safeString(source.deposits),
+    calendarItems: Number.parseInt(source.calendarItems, 10) || 0,
+    stageSummary: safeString(source.stageSummary || "")
+  };
 }
 
 function inferCollectionVectorSize(collectionResponse) {

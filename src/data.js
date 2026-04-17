@@ -1,49 +1,49 @@
 export const COMPLIANCE_DB = {
   base: [
-    { name: "MGT-7 — Annual Return", dept: "MCA", due: "Sep 2026", urgency: "a", pen: "₹100/day (dir. liability)", dir: true },
-    { name: "AOC-4 — Financial Statements", dept: "MCA", due: "Oct 2026", urgency: "a", pen: "₹100/day", dir: true },
-    { name: "DIR-3 KYC — All Directors", dept: "MCA", due: "Sep 2026", urgency: "a", pen: "₹5,000 flat + DIN deactivation", dir: true },
-    { name: "Advance Tax — Q1", dept: "Income Tax", due: "15 Jun", urgency: "a", pen: "1% per month (Sec 234B/C)" },
-    { name: "Advance Tax — Q2", dept: "Income Tax", due: "15 Sep", urgency: "g", pen: "1% per month" },
-    { name: "ITR — Income Tax Return", dept: "Income Tax", due: "31 Oct", urgency: "g", pen: "₹5,000 (late fee)" },
-    { name: "TDS Return — Q4 (26Q)", dept: "Income Tax", due: "31 May", urgency: "a", pen: "₹200/day (Sec 234E)" }
+    { name: "MGT-7 — Annual Return", dept: "MCA", due: "Sep 2026", urgency: "a", pen: "₹100/day (dir. liability)", dir: true, formUrl: "https://www.mca.gov.in/content/mca/global/en/mca/portal/filings.html", formLabel: "File on MCA" },
+    { name: "AOC-4 — Financial Statements", dept: "MCA", due: "Oct 2026", urgency: "a", pen: "₹100/day", dir: true, formUrl: "https://www.mca.gov.in/content/mca/global/en/mca/portal/filings.html", formLabel: "File on MCA" },
+    { name: "DIR-3 KYC — All Directors", dept: "MCA", due: "Sep 2026", urgency: "a", pen: "₹5,000 flat + DIN deactivation", dir: true, formUrl: "https://www.mca.gov.in/content/mca/global/en/mca/portal/filings.html", formLabel: "File on MCA" },
+    { name: "Advance Tax — Q1", dept: "Income Tax", due: "15 Jun", urgency: "a", pen: "1% per month (Sec 234B/C)", formUrl: "https://www.incometax.gov.in/iec/foportal/", formLabel: "Pay advance tax on e-filing" },
+    { name: "Advance Tax — Q2", dept: "Income Tax", due: "15 Sep", urgency: "g", pen: "1% per month", formUrl: "https://www.incometax.gov.in/iec/foportal/", formLabel: "Pay advance tax on e-filing" },
+    { name: "ITR — Income Tax Return", dept: "Income Tax", due: "31 Oct", urgency: "g", pen: "₹5,000 (late fee)", formUrl: "https://www.incometax.gov.in/iec/foportal/", formLabel: "File ITR on e-filing" },
+    { name: "TDS Return — Q4 (26Q)", dept: "Income Tax", due: "31 May", urgency: "a", pen: "₹200/day (Sec 234E)", formUrl: "https://www.incometax.gov.in/iec/foportal/", formLabel: "File TDS return on e-filing" }
   ],
   gst_regular: [
-    { name: "GSTR-1 — Outward Supplies", dept: "GST", due: "11th every month", urgency: "r", pen: "₹50/day (min ₹1,000)" },
-    { name: "GSTR-3B — Monthly Return", dept: "GST", due: "20th every month", urgency: "r", pen: "₹50/day (min ₹1,000)" },
-    { name: "GSTR-9 — Annual Return", dept: "GST", due: "31 Dec", urgency: "g", pen: "₹200/day (max 0.25% turnover)" }
+    { name: "GSTR-1 — Outward Supplies", dept: "GST", due: "11th every month", urgency: "r", pen: "₹50/day (min ₹1,000)", formUrl: "https://www.gst.gov.in/", formLabel: "File GSTR-1 on GST portal" },
+    { name: "GSTR-3B — Monthly Return", dept: "GST", due: "20th every month", urgency: "r", pen: "₹50/day (min ₹1,000)", formUrl: "https://www.gst.gov.in/", formLabel: "File GSTR-3B on GST portal" },
+    { name: "GSTR-9 — Annual Return", dept: "GST", due: "31 Dec", urgency: "g", pen: "₹200/day (max 0.25% turnover)", formUrl: "https://www.gst.gov.in/", formLabel: "File GSTR-9 on GST portal" }
   ],
   gst_composition: [
-    { name: "GSTR-4 — Composition Return", dept: "GST", due: "30 Apr", urgency: "r", pen: "₹200/day" }
+    { name: "GSTR-4 — Composition Return", dept: "GST", due: "30 Apr", urgency: "r", pen: "₹200/day", formUrl: "https://www.gst.gov.in/", formLabel: "File GSTR-4 on GST portal" }
   ],
   emp_1_9: [
-    { name: "PT Registration", dept: "Professional Tax", due: "Within 30 days of hire", urgency: "a", pen: "₹5,000 flat" }
+    { name: "PT Registration", dept: "Professional Tax", due: "Within 30 days of hire", urgency: "a", pen: "₹5,000 flat", formUrl: "https://labour.gov.in/", formLabel: "PT rules by state (labour.gov.in)" }
   ],
   emp_10plus: [
-    { name: "PF Registration (EPFO)", dept: "Labour / PF", due: "Within 30 days of 10th hire", urgency: "r", pen: "₹5,000 + 12% contribution interest", dir: true },
-    { name: "PF Challan — Monthly", dept: "Labour / PF", due: "15th every month", urgency: "r", pen: "12% p.a. interest + ₹5,000 penalty" },
-    { name: "PT Registration & Challan", dept: "Professional Tax", due: "State-specific", urgency: "a", pen: "₹5,000 flat" }
+    { name: "PF Registration (EPFO)", dept: "Labour / PF", due: "Within 30 days of 10th hire", urgency: "r", pen: "₹5,000 + 12% contribution interest", dir: true, formUrl: "https://unifiedportal-emp.epfindia.gov.in/epfo/", formLabel: "Register on EPFO" },
+    { name: "PF Challan — Monthly", dept: "Labour / PF", due: "15th every month", urgency: "r", pen: "12% p.a. interest + ₹5,000 penalty", formUrl: "https://unifiedportal-emp.epfindia.gov.in/epfo/", formLabel: "Pay PF challan on EPFO" },
+    { name: "PT Registration & Challan", dept: "Professional Tax", due: "State-specific", urgency: "a", pen: "₹5,000 flat", formUrl: "https://labour.gov.in/", formLabel: "PT rules by state (labour.gov.in)" }
   ],
   emp_20plus: [
-    { name: "ESI Registration", dept: "Labour / ESI", due: "Within 15 days of 20th hire", urgency: "r", pen: "₹5,000 per director per day", dir: true },
-    { name: "ESI Challan — Monthly", dept: "Labour / ESI", due: "21st every month", urgency: "r", pen: "₹5,000 + simple interest" }
+    { name: "ESI Registration", dept: "Labour / ESI", due: "Within 15 days of 20th hire", urgency: "r", pen: "₹5,000 per director per day", dir: true, formUrl: "https://www.esic.gov.in/", formLabel: "Register on ESIC" },
+    { name: "ESI Challan — Monthly", dept: "Labour / ESI", due: "21st every month", urgency: "r", pen: "₹5,000 + simple interest", formUrl: "https://www.esic.gov.in/", formLabel: "Pay ESI on ESIC" }
   ],
   deposits: [
-    { name: "DPT-3 — Return of Deposits", dept: "MCA", due: "30 Jun annually", urgency: "r", pen: "₹47,000+ (₹25k company + ₹1k/day, dir. personally liable)", dir: true }
+    { name: "DPT-3 — Return of Deposits", dept: "MCA", due: "30 Jun annually", urgency: "r", pen: "₹47,000+ (₹25k company + ₹1k/day, dir. personally liable)", dir: true, formUrl: "https://www.mca.gov.in/content/mca/global/en/mca/portal/filings.html", formLabel: "File DPT-3 on MCA" }
   ],
   state_MH: [
-    { name: "Maharashtra Shop & Estab. Registration", dept: "Shop Act (MH)", due: "Within 30 days of opening", urgency: "a", pen: "₹2,000–₹5,000" },
-    { name: "Maharashtra PT Challan — Monthly", dept: "Prof. Tax (MH)", due: "Last day of month", urgency: "r", pen: "₹300 + 1.25%/month" }
+    { name: "Maharashtra Shop & Estab. Registration", dept: "Shop Act (MH)", due: "Within 30 days of opening", urgency: "a", pen: "₹2,000–₹5,000", formUrl: "https://aaplesarkar.mahaonline.gov.in/", formLabel: "Apply on Aaple Sarkar (MH)" },
+    { name: "Maharashtra PT Challan — Monthly", dept: "Prof. Tax (MH)", due: "Last day of month", urgency: "r", pen: "₹300 + 1.25%/month", formUrl: "https://mahagst.gov.in/", formLabel: "PT payment (MH)" }
   ],
   state_KA: [
-    { name: "Karnataka S&E Registration", dept: "Shop Act (KA)", due: "Before commencing business", urgency: "r", pen: "₹5,000 flat" },
-    { name: "Karnataka PT Challan — Monthly", dept: "Prof. Tax (KA)", due: "20th every month", urgency: "r", pen: "₹100/day" }
+    { name: "Karnataka S&E Registration", dept: "Shop Act (KA)", due: "Before commencing business", urgency: "r", pen: "₹5,000 flat", formUrl: "https://www.sakala.kar.nic.in/", formLabel: "Sakala / KSA (KA)" },
+    { name: "Karnataka PT Challan — Monthly", dept: "Prof. Tax (KA)", due: "20th every month", urgency: "r", pen: "₹100/day", formUrl: "https://pt.karnataka.gov.in/", formLabel: "PT payment (KA)" }
   ],
   state_DL: [
-    { name: "Delhi S&E Registration", dept: "Shop Act (DL)", due: "Within 30 days of opening", urgency: "a", pen: "₹2,000 flat" }
+    { name: "Delhi S&E Registration", dept: "Shop Act (DL)", due: "Within 30 days of opening", urgency: "a", pen: "₹2,000 flat", formUrl: "https://edistrict.delhigovt.nic.in/", formLabel: "Apply on e-District (DL)" }
   ],
   state_TN: [
-    { name: "Tamil Nadu PT Registration", dept: "Prof. Tax (TN)", due: "Within 30 days of hire", urgency: "a", pen: "₹1,000 + arrears" }
+    { name: "Tamil Nadu PT Registration", dept: "Prof. Tax (TN)", due: "Within 30 days of hire", urgency: "a", pen: "₹1,000 + arrears", formUrl: "https://www.tn.gov.in/", formLabel: "TN PT / state portal" }
   ]
 };
 

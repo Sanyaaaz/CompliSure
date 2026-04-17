@@ -63,8 +63,10 @@ const onboardingPanel = `
         </div>
       </div>
       <button class="gen-btn" id="generate-calendar-btn" type="button">Generate my compliance calendar -&gt;</button>
+      <button class="calc-btn" id="view-calendar-btn" type="button" style="margin-top:.65rem">View saved calendar</button>
     </div>
     <div class="calendar-output" id="cal-output">
+      <div id="cal-health-inline"></div>
       <div class="cal-heading" id="cal-heading">Your compliance calendar - 2026-27</div>
       <div id="cal-items"></div>
       <div class="cal-summary" id="cal-summary"></div>
@@ -117,13 +119,41 @@ const penaltyPanel = `
   </div>
 `;
 
+const DEFAULT_CURRENCY = "INR";
+
+function normalizeCurrencyCode(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return DEFAULT_CURRENCY;
+  const upper = s.toUpperCase();
+  if (/^[A-Z]{3}$/.test(upper)) return upper;
+  const symbolMap = {
+    $: "USD",
+    "€": "EUR",
+    "£": "GBP",
+    "₹": "INR",
+    "￥": "JPY",
+    "¥": "JPY"
+  };
+  if (symbolMap[s]) return symbolMap[s];
+  return DEFAULT_CURRENCY;
+}
+
 function formatCurrency(value, currency = "INR") {
   const amount = Number(value) || 0;
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2
-  }).format(amount);
+  const code = normalizeCurrencyCode(currency);
+  try {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: code,
+      maximumFractionDigits: 2
+    }).format(amount);
+  } catch {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: DEFAULT_CURRENCY,
+      maximumFractionDigits: 2
+    }).format(amount);
+  }
 }
 
 function renderNoticePanel(state) {
@@ -162,14 +192,14 @@ function renderNoticePanel(state) {
 
   return `
     <div class="demo-panel" id="tab-notice">
-      <div class="eyebrow" style="margin-bottom:.5rem">Groq-powered notice desk</div>
+      <div class="eyebrow" style="margin-bottom:.5rem">AI-powered notice desk</div>
       <h3 style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:var(--text);margin-bottom:1rem">Upload a notice or paste text to understand what it means for your business</h3>
-      <p style="font-size:14px;color:var(--text2);line-height:1.7;margin-bottom:1.75rem;max-width:760px">CompliSure can analyze notice text, PDFs, screenshots, and images using Groq, explain the notice in plain English, outline business impact, and let you keep asking follow-up questions in the same workspace.</p>
+      <p style="font-size:14px;color:var(--text2);line-height:1.7;margin-bottom:1.75rem;max-width:760px">CompliSure can analyze notice text, PDFs, screenshots, and images, explain the notice in plain English, outline business impact, and let you keep asking follow-up questions in the same workspace.</p>
       <div class="notice-grid">
         <div class="notice-input-area">
           <div class="bill-upload-card notice-upload-card">
             <div class="bill-upload-title">Notice intake</div>
-            <p class="bill-upload-copy">Upload a PDF/image notice or paste the text. Groq will explain what the authority is saying, the risk to your business, and what to do next.</p>
+            <p class="bill-upload-copy">Upload a PDF/image notice or paste the text. The assistant explains what the authority is saying, the risk to your business, and what to do next.</p>
             <label class="bill-dropzone" for="notice-upload-input">
               <input id="notice-upload-input" type="file" accept="application/pdf,image/png,image/jpeg,image/webp,image/heic,image/heif" />
               <span class="bill-dropzone-icon">📄</span>
@@ -236,7 +266,7 @@ Example: 'This is to inform that your company M/s ABC Pvt Ltd (CIN: U72200KA2021
           ` : `
             <div class="notice-placeholder">
               <span class="notice-placeholder-icon">Notice</span>
-              <div>Upload a PDF/image or paste notice text to get a real Groq-powered interpretation.</div>
+              <div>Upload a PDF/image or paste notice text to get an AI-powered interpretation.</div>
             </div>
           `}
         </div>
@@ -248,7 +278,7 @@ Example: 'This is to inform that your company M/s ABC Pvt Ltd (CIN: U72200KA2021
         <div class="notice-chat-form">
           <textarea id="notice-chat-input" class="notice-chat-input" placeholder="Ask: How will this affect our business if we wait another 2 weeks?">${escapeAttr(workspace.questionInput || "")}</textarea>
           <button class="interpret-btn notice-chat-send" id="send-notice-chat-btn" type="button" ${workspace.chatLoading || !interpretation ? "disabled" : ""}>
-            <span>${workspace.chatLoading ? "Thinking..." : "Ask Groq"}</span>
+            <span>${workspace.chatLoading ? "Thinking..." : "Ask AI"}</span>
             <span>-&gt;</span>
           </button>
         </div>
@@ -258,7 +288,7 @@ Example: 'This is to inform that your company M/s ABC Pvt Ltd (CIN: U72200KA2021
 }
 
 function renderBillScannerPanel(state) {
-  const workspace = state.billWorkspace;
+  const workspace = state.billWorkspace && typeof state.billWorkspace === "object" ? state.billWorkspace : {};
   const documents = workspace.documents || [];
   const transactions = workspace.transactions || [];
   const totalSpend = transactions.reduce((sum, entry) => sum + (Number(entry.grossAmount) || 0), 0);
@@ -300,21 +330,21 @@ function renderBillScannerPanel(state) {
 
   return `
     <div class="demo-panel" id="tab-bills">
-      <div class="eyebrow" style="margin-bottom:.5rem">Groq-powered accounting capture</div>
+      <div class="eyebrow" style="margin-bottom:.5rem">AI-powered accounting capture</div>
       <h3 style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:var(--text);margin-bottom:1rem">Scan bills, extract transactions, and build your ledger automatically</h3>
-      <p style="font-size:14px;color:var(--text2);line-height:1.7;margin-bottom:1.75rem;max-width:760px">Upload a bill, invoice image, or PDF and CompliSure will use Groq to read the document, structure the purchase data, and save reusable bookkeeping entries for future automation.</p>
+      <p style="font-size:14px;color:var(--text2);line-height:1.7;margin-bottom:1.75rem;max-width:760px">Upload a bill, invoice image, or PDF and CompliSure will read the document, structure the purchase data, and save reusable bookkeeping entries for future automation.</p>
 
       <div class="bill-scan-grid">
       <div class="bill-upload-card">
           <div class="bill-upload-title">Document intake</div>
-          <p class="bill-upload-copy">Accepts PDF, JPG, PNG, WEBP, and HEIC bills or invoices. Groq extracts the data and stores it in your dashboard for future workflows.</p>
+          <p class="bill-upload-copy">Accepts PDF, JPG, PNG, WEBP, and HEIC bills or invoices. AI extracts the data and stores it in your dashboard for future workflows.</p>
           <label class="bill-dropzone" for="bill-upload-input">
             <input id="bill-upload-input" type="file" accept="application/pdf,image/png,image/jpeg,image/webp,image/heic,image/heif" />
             <span class="bill-dropzone-icon">🧾</span>
             <span class="bill-dropzone-title">Choose a bill, invoice, or PDF</span>
             <span class="bill-dropzone-sub">${workspace.selectedFileName || "No file selected yet"}</span>
           </label>
-          <button class="btn-green bill-scan-btn" id="scan-bill-btn" type="button" ${workspace.scanLoading ? "disabled" : ""}>${workspace.scanLoading ? "Scanning with Groq..." : "Scan and store in ledger"} <span>→</span></button>
+          <button class="btn-green bill-scan-btn" id="scan-bill-btn" type="button" ${workspace.scanLoading ? "disabled" : ""}>${workspace.scanLoading ? "Scanning..." : "Scan and store in ledger"} <span>→</span></button>
           <p class="bill-upload-note">This stores normalized vendor, tax, and line-item data in the app ledger so later features can reuse it.</p>
           ${workspace.scanMessage ? `<div class="auth-toast ${workspace.scanError ? "auth-toast-error" : ""}">${workspace.scanMessage}</div>` : ""}
         </div>
