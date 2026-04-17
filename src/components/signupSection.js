@@ -1,5 +1,21 @@
 export function renderSignupSection(state) {
   const { auth } = state;
+  const isDetailsOnlyLogin = Boolean(state.flags?.detailsOnlyLogin);
+  const badgeText = auth.verified ? "Verified" : isDetailsOnlyLogin ? "Temporary access" : auth.otpSent ? "OTP sent" : "Step 1";
+  const title = isDetailsOnlyLogin
+    ? "Temporary details-only login"
+    : "Sign up with Aadhaar card, then unlock the dashboard with OTP";
+  const subtitle = isDetailsOnlyLogin
+    ? "Aadhaar verification is temporarily paused. For now, the dashboard opens from the entered details only, while the Aadhaar flow stays in the codebase for later."
+    : "We’ve added an Aadhaar-first entry flow to the landing page. The dashboard stays locked until OTP verification is completed.";
+  const helper = isDetailsOnlyLogin
+    ? "Temporary mode is active: Aadhaar verification and OTP are bypassed, but the underlying files and integration remain in place."
+    : "Aadhaar OTP now goes through the configured sandbox backend. Add your sandbox URLs, headers, and request templates in the server env file.";
+  const primaryButtonLabel = isDetailsOnlyLogin
+    ? "Continue to dashboard"
+    : auth.loading && auth.loadingStep === "send"
+      ? "Sending OTP..."
+      : "Send OTP to registered mobile";
 
   return `
     <section id="signup" class="auth-section">
@@ -7,12 +23,12 @@ export function renderSignupSection(state) {
         <div class="auth-shell">
           <div class="auth-copy">
             <div class="eyebrow">Verified access</div>
-            <h2 class="sec-title">Sign up with Aadhaar card, then unlock the dashboard with OTP</h2>
-            <p class="sec-sub">We’ve added an Aadhaar-first entry flow to the landing page. The dashboard stays locked until OTP verification is completed.</p>
+            <h2 class="sec-title">${title}</h2>
+            <p class="sec-sub">${subtitle}</p>
             <div class="auth-steps">
               <div class="auth-step"><span>1</span> Enter founder and company details</div>
-              <div class="auth-step"><span>2</span> Verify Aadhaar and send OTP to the linked mobile</div>
-              <div class="auth-step"><span>3</span> Open the dashboard only after OTP success</div>
+              <div class="auth-step"><span>2</span>${isDetailsOnlyLogin ? "Aadhaar field kept for later reactivation" : "Verify Aadhaar and send OTP to the linked mobile"}</div>
+              <div class="auth-step"><span>3</span>${isDetailsOnlyLogin ? "Open the dashboard directly from the entered details" : "Open the dashboard only after OTP success"}</div>
             </div>
           </div>
           <div class="auth-card">
@@ -21,7 +37,7 @@ export function renderSignupSection(state) {
                 <div class="auth-kicker">Founders onboarding</div>
                 <h3>Secure sign up</h3>
               </div>
-              <div class="auth-badge">${auth.verified ? "Verified" : auth.otpSent ? "OTP sent" : "Step 1"}</div>
+              <div class="auth-badge">${badgeText}</div>
             </div>
             <form id="signup-form" class="auth-form">
               <div class="field">
@@ -36,14 +52,16 @@ export function renderSignupSection(state) {
                 <label for="aadhaar-number">Aadhaar number</label>
                 <input id="aadhaar-number" type="text" inputmode="numeric" maxlength="14" value="${auth.aadhaarDisplay}" placeholder="1234 5678 9012" />
               </div>
-              <label class="consent-row">
-                <input id="aadhaar-consent" type="checkbox" ${auth.consent ? "checked" : ""} />
-                <span>I consent to Aadhaar OTP verification for dashboard access.</span>
-              </label>
-              <button class="btn-green auth-btn" id="send-otp-btn" type="button" ${auth.loading ? "disabled" : ""}>${auth.loading && auth.loadingStep === "send" ? "Sending OTP..." : "Send OTP to registered mobile"} <span>→</span></button>
-              <p class="auth-helper">Aadhaar OTP now goes through the configured sandbox backend. Add your sandbox URLs, headers, and request templates in the server env file.</p>
+              ${isDetailsOnlyLogin ? "" : `
+                <label class="consent-row">
+                  <input id="aadhaar-consent" type="checkbox" ${auth.consent ? "checked" : ""} />
+                  <span>I consent to Aadhaar OTP verification for dashboard access.</span>
+                </label>
+              `}
+              <button class="btn-green auth-btn" id="send-otp-btn" type="button" ${auth.loading ? "disabled" : ""}>${primaryButtonLabel} <span>→</span></button>
+              <p class="auth-helper">${helper}</p>
               ${auth.message ? `<div class="auth-toast ${auth.messageType === "error" ? "auth-toast-error" : ""}">${auth.message}</div>` : ""}
-              ${auth.otpSent ? `
+              ${!isDetailsOnlyLogin && auth.otpSent ? `
                 <div class="otp-box">
                   <div class="otp-copy">
                     <div class="otp-label">OTP verification</div>

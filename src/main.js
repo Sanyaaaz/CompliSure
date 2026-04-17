@@ -3,6 +3,8 @@ import { renderDashboardPage } from "./components/dashboardPage.js";
 import { renderLandingPage } from "./components/landingPage.js";
 
 const root = document.getElementById("app");
+// Temporary switch to let the team continue testing while Aadhaar verification is paused.
+const TEMPORARY_DETAILS_ONLY_LOGIN = true;
 
 function createDefaultAuthState() {
   return {
@@ -23,34 +25,12 @@ function createDefaultAuthState() {
   };
 }
 
-function createDefaultReminderState(savedAuth, savedReminderProfile) {
-  const today = new Date();
-  const defaultDueDate = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const fallback = {
-    ownerEmail: "",
-    caEmail: "",
-    obligationName: "GSTR-3B - Monthly Return",
-    dueDate: defaultDueDate,
-    trigger: "7_days_before"
-  };
-
-  return {
-    ...fallback,
-    ...(savedReminderProfile || {}),
-    ownerName: savedAuth?.fullName || "",
-    companyName: savedAuth?.companyName || "",
-    caName: "Linked CA"
-  };
-}
-
 const savedSession = readSession();
-const savedReminderProfile = readReminderProfile();
 
 const state = {
   view: savedSession?.verified ? "dashboard" : "landing",
   auth: savedSession ? { ...createDefaultAuthState(), ...savedSession, otpSent: false, otpInput: "", referenceId: "", message: "", messageType: "info", loading: false, loadingStep: "" } : createDefaultAuthState(),
-  caRows: DEFAULT_CA_ROWS.map((row) => ({ ...row })),
-  reminders: createDefaultReminderState(savedSession, savedReminderProfile)
+  caRows: DEFAULT_CA_ROWS.map((row) => ({ ...row }))
 };
 
 renderApp();
@@ -142,7 +122,7 @@ async function handleSendOtpAsync() {
   syncSignupFormToState();
 
   if (!state.auth.fullName || !state.auth.companyName) {
-    state.auth.message = "Enter founder and company details before requesting OTP.";
+    state.auth.message = "Enter founder and company details before continuing.";
     state.auth.messageType = "error";
     renderApp();
     scrollToId("signup");
@@ -157,11 +137,31 @@ async function handleSendOtpAsync() {
     return;
   }
 
-  if (!state.auth.consent) {
+  if (!state.flags.detailsOnlyLogin && !state.auth.consent) {
     state.auth.message = "Consent is required before OTP verification can start.";
     state.auth.messageType = "error";
     renderApp();
     scrollToId("signup");
+    return;
+  }
+
+  if (state.flags.detailsOnlyLogin) {
+    state.auth.verified = true;
+    state.auth.otpSent = false;
+    state.auth.referenceId = "";
+    state.auth.verificationProfile = {
+      name: state.auth.fullName,
+      dateOfBirth: "",
+      gender: "",
+      fullAddress: "",
+      referenceId: "details-only-bypass"
+    };
+    state.auth.messageType = "info";
+    state.auth.message = "";
+    state.view = "dashboard";
+    persistSession();
+    renderApp();
+    window.scrollTo({ top: 0, behavior: "smooth" });
     return;
   }
 
@@ -280,10 +280,8 @@ function bindDashboardEvents() {
 function bindLiveToolEvents() {
   document.querySelectorAll(".demo-tab").forEach((tab) => {
     tab.addEventListener("click", () => {
-      document.querySelectorAll(".demo-tab").forEach((item) => item.classList.remove("active"));
-      document.querySelectorAll(".demo-panel").forEach((panel) => panel.classList.remove("active"));
-      tab.classList.add("active");
-      document.getElementById(`tab-${tab.dataset.tab}`)?.classList.add("active");
+      state.activeToolTab = tab.dataset.tab || "onboard";
+      applyActiveToolTab();
     });
   });
 
@@ -305,7 +303,6 @@ function bindLiveToolEvents() {
     }
   });
   document.getElementById("interpret-notice-btn")?.addEventListener("click", interpretNotice);
-  bindReminderEvents();
 
   document.querySelectorAll("[data-wa-action]").forEach((button) => {
     button.addEventListener("click", () => handleWhatsappAction(button.dataset.waAction));
@@ -329,6 +326,8 @@ function bindLiveToolEvents() {
     });
     updatePendingCount();
   });
+
+  applyActiveToolTab();
 }
 
 function bindReminderEvents() {
@@ -597,6 +596,71 @@ async function handleWhatsappAction(action) {
   }
 }
 
+function applyActiveToolTab() {
+  const activeTab = state.activeToolTab || "onboard";
+  document.querySelectorAll(".demo-tab").forEach((item) => {
+    item.classList.toggle("active", item.dataset.tab === activeTab);
+  });
+  document.querySelectorAll(".demo-panel").forEach((panel) => {
+    panel.classList.toggle("active", panel.id === `tab-${activeTab}`);
+  });
+}
+
+function handleBillFileSelection(event) {
+  const file = event.target.files?.[0];
+  state.billWorkspace.selectedFileName = file ? file.name : "";
+  state.billWorkspace.scanMessage = file ? `Ready to scan ${file.name}.` : "";
+  state.billWorkspace.scanError = false;
+  document.querySelector(".bill-dropzone-sub")?.replaceChildren(state.billWorkspace.selectedFileName || "No file selected yet");
+}
+
+async function handleBillScan() {
+  const input = document.getElementById("bill-upload-input");
+  const file = input?.files?.[0];
+  state.activeToolTab = "bills";
+
+  if (!file) {
+    state.billWorkspace.scanMessage = "Choose a bill or invoice image before scanning.";
+    state.billWorkspace.scanError = true;
+    renderApp();
+    return;
+  }
+
+  if (file.size > 8 * 1024 * 1024) {
+    state.billWorkspace.scanMessage = "Use an image smaller than 8 MB for reliable invoice extraction.";
+    state.billWorkspace.scanError = true;
+    renderApp();
+    return;
+  }
+
+  state.billWorkspace.scanLoading = true;
+  state.billWorkspace.scanError = false;
+  state.billWorkspace.scanMessage = `Scanning ${file.name} with Gemini...`;
+  state.billWorkspace.selectedFileName = file.name;
+  renderApp();
+
+  try {
+    const upload = await readFileAsUpload(file);
+    const response = await postJson("/api/bills/scan", upload);
+    const document = buildStoredBillDocument(response.document);
+    const transactions = buildTransactionsFromDocument(document);
+
+    state.billWorkspace.documents = [document, ...state.billWorkspace.documents];
+    state.billWorkspace.transactions = [...transactions, ...state.billWorkspace.transactions];
+    state.billWorkspace.scanLoading = false;
+    state.billWorkspace.scanError = false;
+    state.billWorkspace.scanMessage = response.message || `${document.fileName} scanned successfully.`;
+    state.billWorkspace.selectedFileName = "";
+    persistBillWorkspace();
+    renderApp();
+  } catch (error) {
+    state.billWorkspace.scanLoading = false;
+    state.billWorkspace.scanError = true;
+    state.billWorkspace.scanMessage = error.message || "Bill scanning failed.";
+    renderApp();
+  }
+}
+
 function initializeCaStatusStyles() {
   document.querySelectorAll(".ca-status-sel").forEach((select) => {
     applyStatusStyle(select, select.value);
@@ -658,6 +722,107 @@ async function postJson(url, payload) {
   return data;
 }
 
+async function readFileAsUpload(file) {
+  const dataUrl = await readFileAsDataUrl(file);
+  const [, base64 = ""] = dataUrl.split(",", 2);
+
+  return {
+    fileName: file.name,
+    mimeType: file.type || "image/jpeg",
+    imageBase64: base64
+  };
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Could not read the uploaded bill image."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function buildStoredBillDocument(document) {
+  return {
+    id: createId("bill"),
+    scannedAt: new Date().toISOString(),
+    fileName: document.fileName || "scanned-bill",
+    mimeType: document.mimeType || "image/jpeg",
+    documentType: document.documentType || "invoice",
+    vendorName: document.vendorName || "Unknown vendor",
+    invoiceNumber: document.invoiceNumber || "",
+    invoiceDate: document.invoiceDate || "",
+    dueDate: document.dueDate || "",
+    currency: document.currency || "INR",
+    subtotal: toNumber(document.subtotal),
+    taxAmount: toNumber(document.taxAmount),
+    cgstAmount: toNumber(document.cgstAmount),
+    sgstAmount: toNumber(document.sgstAmount),
+    igstAmount: toNumber(document.igstAmount),
+    totalAmount: toNumber(document.totalAmount),
+    paymentMethod: document.paymentMethod || "",
+    gstin: document.gstin || "",
+    category: document.category || "General expense",
+    notes: document.notes || "",
+    confidence: toNumber(document.confidence),
+    lineItems: Array.isArray(document.lineItems) ? document.lineItems.map((item) => ({
+      description: item.description || "Scanned item",
+      quantity: toNumber(item.quantity) || 1,
+      unitPrice: toNumber(item.unitPrice),
+      amount: toNumber(item.amount),
+      taxRate: toNumber(item.taxRate),
+      taxAmount: toNumber(item.taxAmount),
+      category: item.category || document.category || "General expense"
+    })) : []
+  };
+}
+
+function buildTransactionsFromDocument(document) {
+  const invoiceDate = document.invoiceDate || document.scannedAt.slice(0, 10);
+  const items = document.lineItems.length ? document.lineItems : [{
+    description: document.documentType || "Scanned expense",
+    quantity: 1,
+    unitPrice: document.totalAmount,
+    amount: document.subtotal || document.totalAmount,
+    taxRate: 0,
+    taxAmount: document.taxAmount,
+    category: document.category || "General expense"
+  }];
+
+  return items.map((item, index) => ({
+    id: createId(`txn-${document.id}-${index}`),
+    documentId: document.id,
+    invoiceDate,
+    vendorName: document.vendorName,
+    invoiceNumber: document.invoiceNumber,
+    description: item.description || `Line item ${index + 1}`,
+    category: item.category || document.category || "General expense",
+    quantity: toNumber(item.quantity) || 1,
+    unitPrice: toNumber(item.unitPrice),
+    baseAmount: toNumber(item.amount),
+    taxAmount: toNumber(item.taxAmount),
+    grossAmount: toNumber(item.amount) + toNumber(item.taxAmount),
+    gstin: document.gstin || "",
+    paymentMethod: document.paymentMethod || ""
+  }));
+}
+
+function createId(prefix) {
+  if (globalThis.crypto?.randomUUID) {
+    return `${prefix}-${globalThis.crypto.randomUUID()}`;
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function toNumber(value) {
+  if (value == null || value === "") return 0;
+  if (typeof value === "string") {
+    const cleaned = value.replace(/,/g, "").replace(/₹/g, "").trim();
+    return Number.parseFloat(cleaned) || 0;
+  }
+  return Number(value) || 0;
+}
+
 function persistSession() {
   localStorage.setItem("complisure-session", JSON.stringify({
     verified: true,
@@ -673,25 +838,6 @@ function persistSession() {
 function readSession() {
   try {
     const raw = localStorage.getItem("complisure-session");
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function persistReminderProfile() {
-  localStorage.setItem("complisure-reminder-profile", JSON.stringify({
-    ownerEmail: state.reminders.ownerEmail,
-    caEmail: state.reminders.caEmail,
-    obligationName: state.reminders.obligationName,
-    dueDate: state.reminders.dueDate,
-    trigger: state.reminders.trigger
-  }));
-}
-
-function readReminderProfile() {
-  try {
-    const raw = localStorage.getItem("complisure-reminder-profile");
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;

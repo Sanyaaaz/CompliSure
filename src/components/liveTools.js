@@ -145,6 +145,155 @@ Example: 'This is to inform that your company M/s ABC Pvt Ltd (CIN: U72200KA2021
   </div>
 `;
 
+function formatCurrency(value, currency = "INR") {
+  const amount = Number(value) || 0;
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 2
+  }).format(amount);
+}
+
+function renderBillScannerPanel(state) {
+  const workspace = state.billWorkspace;
+  const documents = workspace.documents || [];
+  const transactions = workspace.transactions || [];
+  const totalSpend = transactions.reduce((sum, entry) => sum + (Number(entry.grossAmount) || 0), 0);
+  const totalTax = documents.reduce((sum, doc) => sum + (Number(doc.taxAmount) || 0), 0);
+  const vendors = new Set(documents.map((doc) => doc.vendorName).filter(Boolean)).size;
+
+  const documentsMarkup = documents.length ? documents.map((doc) => `
+    <tr>
+      <td>${doc.vendorName || "Unknown vendor"}</td>
+      <td>${doc.invoiceNumber || "—"}</td>
+      <td>${doc.invoiceDate || "—"}</td>
+      <td>${doc.category || "General expense"}</td>
+      <td>${doc.gstin || "—"}</td>
+      <td>${formatCurrency(doc.totalAmount, doc.currency || "INR")}</td>
+      <td>${Math.round((Number(doc.confidence) || 0) * 100)}%</td>
+    </tr>
+  `).join("") : `
+    <tr>
+      <td colspan="7" class="empty-table-cell">No bills stored yet. Scan your first invoice to build the ledger.</td>
+    </tr>
+  `;
+
+  const transactionsMarkup = transactions.length ? transactions.map((entry) => `
+    <tr>
+      <td>${entry.invoiceDate || "—"}</td>
+      <td>${entry.vendorName || "Unknown vendor"}</td>
+      <td>${entry.description || "Scanned transaction"}</td>
+      <td>${entry.category || "General expense"}</td>
+      <td>${Number(entry.quantity) || 1}</td>
+      <td>${formatCurrency(entry.baseAmount || 0)}</td>
+      <td>${formatCurrency(entry.taxAmount || 0)}</td>
+      <td>${formatCurrency(entry.grossAmount || 0)}</td>
+    </tr>
+  `).join("") : `
+    <tr>
+      <td colspan="8" class="empty-table-cell">Structured ledger entries will appear here after a bill scan.</td>
+    </tr>
+  `;
+
+  return `
+    <div class="demo-panel" id="tab-bills">
+      <div class="eyebrow" style="margin-bottom:.5rem">Gemini-powered accounting capture</div>
+      <h3 style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:var(--text);margin-bottom:1rem">Scan bills, extract transactions, and build your ledger automatically</h3>
+      <p style="font-size:14px;color:var(--text2);line-height:1.7;margin-bottom:1.75rem;max-width:760px">Upload a bill or invoice image and CompliSure will use Gemini to read the document, structure the purchase data, and save reusable bookkeeping entries for future automation.</p>
+
+      <div class="bill-scan-grid">
+        <div class="bill-upload-card">
+          <div class="bill-upload-title">Document intake</div>
+          <p class="bill-upload-copy">Accepts JPG, PNG, WEBP, and HEIC bill images. The extracted data is stored in your dashboard for later workflows.</p>
+          <label class="bill-dropzone" for="bill-upload-input">
+            <input id="bill-upload-input" type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" />
+            <span class="bill-dropzone-icon">🧾</span>
+            <span class="bill-dropzone-title">Choose a bill or invoice image</span>
+            <span class="bill-dropzone-sub">${workspace.selectedFileName || "No file selected yet"}</span>
+          </label>
+          <button class="btn-green bill-scan-btn" id="scan-bill-btn" type="button" ${workspace.scanLoading ? "disabled" : ""}>${workspace.scanLoading ? "Scanning with Gemini..." : "Scan and store in ledger"} <span>→</span></button>
+          <p class="bill-upload-note">This stores normalized vendor, tax, and line-item data locally so later features can reuse it.</p>
+          ${workspace.scanMessage ? `<div class="auth-toast ${workspace.scanError ? "auth-toast-error" : ""}">${workspace.scanMessage}</div>` : ""}
+        </div>
+
+        <div class="bill-summary-grid">
+          <div class="bill-summary-card">
+            <div class="bill-summary-label">Bills stored</div>
+            <div class="bill-summary-value">${documents.length}</div>
+            <div class="bill-summary-sub">Scanned source documents</div>
+          </div>
+          <div class="bill-summary-card">
+            <div class="bill-summary-label">Transactions captured</div>
+            <div class="bill-summary-value">${transactions.length}</div>
+            <div class="bill-summary-sub">Reusable ledger entries</div>
+          </div>
+          <div class="bill-summary-card">
+            <div class="bill-summary-label">Spend tracked</div>
+            <div class="bill-summary-value">${formatCurrency(totalSpend)}</div>
+            <div class="bill-summary-sub">Gross value across stored bills</div>
+          </div>
+          <div class="bill-summary-card">
+            <div class="bill-summary-label">Tax captured</div>
+            <div class="bill-summary-value">${formatCurrency(totalTax)}</div>
+            <div class="bill-summary-sub">${vendors} vendor${vendors === 1 ? "" : "s"} recognized</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="bill-table-card">
+        <div class="bill-table-header">
+          <div>
+            <div class="bill-table-title">Stored bills</div>
+            <div class="bill-table-sub">Document-level summary for every scanned invoice or receipt.</div>
+          </div>
+        </div>
+        <div class="bill-table-wrap">
+          <table class="bill-table">
+            <thead>
+              <tr>
+                <th>Vendor</th>
+                <th>Invoice #</th>
+                <th>Date</th>
+                <th>Category</th>
+                <th>GSTIN</th>
+                <th>Total</th>
+                <th>Confidence</th>
+              </tr>
+            </thead>
+            <tbody>${documentsMarkup}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="bill-table-card">
+        <div class="bill-table-header">
+          <div>
+            <div class="bill-table-title">Ledger transactions</div>
+            <div class="bill-table-sub">Line-item level transactions extracted from scanned bills for future automation.</div>
+          </div>
+        </div>
+        <div class="bill-table-wrap">
+          <table class="bill-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Vendor</th>
+                <th>Description</th>
+                <th>Category</th>
+                <th>Qty</th>
+                <th>Base</th>
+                <th>Tax</th>
+                <th>Gross</th>
+              </tr>
+            </thead>
+            <tbody>${transactionsMarkup}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function escapeAttr(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -220,7 +369,7 @@ function renderWhatsappPanel(reminders) {
             Penalty if missed: Rs 50/day (min Rs 1,000)<br />
             CA status: Not yet started
           </div>
-          <div class="wa-time">Today � 9:00 AM</div>
+          <div class="wa-time">Today � 9:00 AM</div>
           <div class="wa-actions">
             <button class="wa-action-btn" data-wa-action="filed" type="button">Mark as filed</button>
             <button class="wa-action-btn" data-wa-action="remind" type="button">Remind CA</button>
@@ -271,13 +420,14 @@ export function renderLiveTools(state) {
             <div class="demo-tab active" data-tab="onboard">Smart onboarding</div>
             <div class="demo-tab" data-tab="penalty">Penalty calculator</div>
             <div class="demo-tab" data-tab="notice">Notice interpreter</div>
+            <div class="demo-tab" data-tab="bills">Bill scanner</div>
             <div class="demo-tab" data-tab="whatsapp">WhatsApp reminders</div>
             <div class="demo-tab" data-tab="ca">CA portal</div>
           </div>
           ${onboardingPanel}
           ${penaltyPanel}
           ${noticePanel}
-          ${renderWhatsappPanel(reminders)}
+          ${whatsappPanel}
           <div class="demo-panel" id="tab-ca">
             <div class="eyebrow" style="margin-bottom:.5rem">Multi-client dashboard</div>
             <h3 style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:var(--text);margin-bottom:1.75rem">Your entire client portfolio - one pane</h3>
