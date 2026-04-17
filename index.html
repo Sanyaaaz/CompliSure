@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>CompliSure — Your CA's memory, but reliable.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#09090B;--bg2:#111113;--bg3:#18181B;--bg4:#1F1F23;
+  --border:#2A2A2F;--border2:#3A3A42;
+  --text:#FAFAFA;--text2:#A1A1AA;--text3:#71717A;
+  --green:#22C55E;--green-bg:#052e16;--green-dim:#16A34A;
+  --amber:#F59E0B;--amber-bg:#1c1007;
+  --red:#EF4444;--red-bg:#1f0707;
+  --blue:#3B82F6;--blue-bg:#071830;
+  --accent:#22C55E;
+  --r:12px;--r2:20px;--r3:28px;
+}
+html{scroll-behavior:smooth}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;font-size:16px;overflow-x:hidden}
+
+/* ── NAV ── */
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:999;
+  height:64px;padding:0 2rem;
+  display:flex;align-items:center;justify-content:space-between;
+  background:rgba(9,9,11,0.8);backdrop-filter:blur(20px);
+  border-bottom:1px solid var(--border);
+}
+.logo{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--text);text-decoration:none;letter-spacing:-0.5px}
+.logo span{color:var(--green)}
+.nav-links{display:flex;gap:1.75rem;list-style:none}
+.nav-links a{color:var(--text2);text-decoration:none;font-size:14px;font-weight:500;transition:color .2s}
+.nav-links a:hover{color:var(--text)}
+.nav-btn{background:var(--green);color:#000;padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;transition:opacity .2s;letter-spacing:0.2px}
+.nav-btn:hover{opacity:.85}
+
+/* ── HERO ── */
+.hero{
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;padding:7rem 2rem 4rem;position:relative;
+}
+.hero-glow{
+  position:absolute;top:20%;left:50%;transform:translateX(-50%);
+  width:600px;height:400px;pointer-events:none;
+  background:radial-gradient(ellipse,rgba(34,197,94,.12) 0%,transparent 70%);
+}
+.hero-tag{
+  display:inline-flex;align-items:center;gap:8px;
+  border:1px solid rgba(34,197,94,.3);background:rgba(34,197,94,.08);
+  color:var(--green);padding:6px 16px;border-radius:100px;font-size:12px;font-weight:600;
+  letter-spacing:.5px;text-transform:uppercase;margin-bottom:2rem;
+}
+.hero-tag-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+h1{
+  font-family:'Syne',sans-serif;font-size:clamp(3rem,6.5vw,6rem);
+  font-weight:800;line-height:1.0;letter-spacing:-2px;
+  color:var(--text);max-width:900px;margin-bottom:1.5rem;
+}
+h1 .accent{color:var(--green)}
+h1 .italic{font-style:italic;color:var(--text2)}
+.hero-sub{font-size:1.15rem;color:var(--text2);max-width:560px;margin:0 auto 2.5rem;font-weight:300;line-height:1.8}
+.hero-btns{display:flex;gap:1rem;flex-wrap:wrap;justify-content:center;margin-bottom:4rem}
+.btn-green{background:var(--green);color:#000;padding:14px 32px;border-radius:10px;font-size:15px;font-weight:600;text-decoration:none;border:none;cursor:pointer;transition:opacity .2s,transform .15s;display:inline-flex;align-items:center;gap:8px}
+.btn-green:hover{opacity:.85;transform:translateY(-1px)}
+.btn-outline{background:transparent;color:var(--text);padding:14px 32px;border-radius:10px;font-size:15px;font-weight:500;text-decoration:none;border:1px solid var(--border2);cursor:pointer;transition:border-color .2s,transform .15s;display:inline-flex;align-items:center;gap:8px}
+.btn-outline:hover{border-color:var(--text2);transform:translateY(-1px)}
+.hero-stats{display:flex;gap:0;border:1px solid var(--border);border-radius:var(--r2);overflow:hidden}
+.stat{padding:1.5rem 2.5rem;text-align:center;border-right:1px solid var(--border)}
+.stat:last-child{border-right:none}
+.stat-n{font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:var(--text);line-height:1}
+.stat-l{font-size:12px;color:var(--text3);margin-top:4px;max-width:120px}
+
+/* ── SECTIONS ── */
+section{padding:7rem 2rem}
+.wrap{max-width:1100px;margin:0 auto}
+.eyebrow{font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--green);margin-bottom:.75rem}
+.sec-title{font-family:'Syne',sans-serif;font-size:clamp(2rem,3.5vw,2.8rem);font-weight:800;letter-spacing:-1px;line-height:1.1;color:var(--text);margin-bottom:1rem;max-width:620px}
+.sec-sub{font-size:1rem;color:var(--text2);max-width:520px;line-height:1.8;margin-bottom:3rem}
+
+/* ── PROBLEM BENTO ── */
+.bento{display:grid;grid-template-columns:repeat(12,1fr);gap:12px}
+.bento-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);padding:2rem;transition:border-color .2s}
+.bento-card:hover{border-color:var(--border2)}
+.bento-c1{grid-column:span 5}
+.bento-c2{grid-column:span 7}
+.bento-c3{grid-column:span 7}
+.bento-c4{grid-column:span 5}
+.bento-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:1.25rem}
+.icon-red{background:var(--red-bg)}
+.icon-amber{background:var(--amber-bg)}
+.icon-green{background:var(--green-bg)}
+.icon-blue{background:var(--blue-bg)}
+.bento-title{font-family:'Syne',sans-serif;font-size:1.05rem;font-weight:700;color:var(--text);margin-bottom:.5rem}
+.bento-body{font-size:13.5px;color:var(--text2);line-height:1.65}
+.penalty-pill{
+  display:inline-flex;align-items:center;gap:8px;
+  background:var(--red-bg);border:1px solid rgba(239,68,68,.25);
+  padding:10px 16px;border-radius:10px;margin-top:1.25rem;
+  font-size:13px;color:var(--red);font-weight:500;line-height:1.4;
+}
+
+/* ── LIVE DEMO TABS ── */
+.demo-area{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r3);overflow:hidden;margin-top:3rem}
+.demo-tabs{display:flex;border-bottom:1px solid var(--border);background:var(--bg3)}
+.demo-tab{padding:1rem 1.75rem;font-size:13px;font-weight:600;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .2s,border-color .2s;white-space:nowrap;user-select:none}
+.demo-tab.active{color:var(--green);border-color:var(--green)}
+.demo-tab:hover:not(.active){color:var(--text)}
+.demo-panel{display:none;padding:2.5rem}
+.demo-panel.active{display:block}
+
+/* ── ONBOARDING DEMO ── */
+.onboard-form{max-width:560px}
+.field{margin-bottom:1.5rem}
+.field label{display:block;font-size:13px;font-weight:600;color:var(--text2);margin-bottom:.5rem;letter-spacing:.3px}
+.field select,.field input[type=text]{
+  width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);
+  color:var(--text);padding:11px 14px;font-size:14px;font-family:'Inter',sans-serif;
+  appearance:none;-webkit-appearance:none;cursor:pointer;outline:none;transition:border-color .2s;
+}
+.field select:focus,.field input:focus{border-color:var(--green)}
+.field select option{background:var(--bg3)}
+.radio-group{display:flex;gap:8px;flex-wrap:wrap}
+.radio-btn{
+  padding:8px 16px;border-radius:8px;border:1px solid var(--border2);
+  font-size:13px;font-weight:500;color:var(--text2);cursor:pointer;transition:all .2s;background:var(--bg3);
+  user-select:none;
+}
+.radio-btn.sel{border-color:var(--green);background:rgba(34,197,94,.1);color:var(--green)}
+.gen-btn{background:var(--green);color:#000;border:none;padding:13px 28px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;transition:opacity .2s;font-family:'Inter',sans-serif}
+.gen-btn:hover{opacity:.85}
+.calendar-output{display:none;margin-top:2rem}
+.cal-heading{font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;color:var(--text);margin-bottom:1rem}
+.cal-row{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;background:var(--bg3);border:1px solid var(--border);margin-bottom:8px;transition:border-color .2s}
+.cal-row:hover{border-color:var(--border2)}
+.dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.dot-r{background:var(--red)}.dot-a{background:var(--amber)}.dot-g{background:var(--green)}.dot-gr{background:var(--text3)}
+.cal-name{font-size:13.5px;font-weight:600;color:var(--text);flex:1}
+.cal-dept{font-size:11px;color:var(--text3);margin-top:1px}
+.cal-due{font-size:12px;color:var(--text2);white-space:nowrap}
+.cal-pen{font-size:11px;font-weight:600;padding:3px 9px;border-radius:5px;white-space:nowrap}
+.pen-r{background:var(--red-bg);color:var(--red)}
+.pen-a{background:var(--amber-bg);color:var(--amber)}
+.cal-summary{background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:12px;padding:14px 18px;margin-top:1rem;font-size:13px;color:var(--green);font-weight:500}
+
+/* ── PENALTY CALCULATOR ── */
+.penalty-calc{display:grid;grid-template-columns:1fr 1fr;gap:2rem;align-items:start}
+.form-col{}
+.result-col{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);padding:2rem}
+.pen-form-field{margin-bottom:1.25rem}
+.pen-form-field label{display:block;font-size:12px;font-weight:600;color:var(--text3);margin-bottom:.4rem;letter-spacing:.5px;text-transform:uppercase}
+.pen-form-field select,.pen-form-field input{
+  width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);
+  color:var(--text);padding:10px 14px;font-size:14px;font-family:'Inter',sans-serif;outline:none;
+  appearance:none;-webkit-appearance:none;transition:border-color .2s;
+}
+.pen-form-field select:focus,.pen-form-field input:focus{border-color:var(--green)}
+.pen-form-field select option{background:var(--bg3)}
+.calc-btn{background:var(--green);color:#000;border:none;padding:12px 24px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif;transition:opacity .2s;width:100%}
+.calc-btn:hover{opacity:.85}
+.penalty-amount{font-family:'Syne',sans-serif;font-size:3.5rem;font-weight:800;color:var(--red);line-height:1;margin-bottom:.25rem}
+.penalty-label{font-size:13px;color:var(--text2);margin-bottom:1.5rem}
+.pen-bar-label{font-size:12px;color:var(--text3);margin-bottom:.25rem}
+.pen-bar-track{background:var(--bg4);border-radius:4px;height:8px;overflow:hidden;margin-bottom:1rem}
+.pen-bar-fill{height:100%;border-radius:4px;background:var(--red);transition:width .5s}
+.pen-timeline{display:flex;flex-direction:column;gap:8px;margin-top:1.25rem}
+.pen-t-row{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:10px 14px;border-radius:8px;background:var(--bg4)}
+.pen-t-label{color:var(--text2)}
+.pen-t-val{font-weight:700;color:var(--red);font-family:'Syne',sans-serif}
+.dir-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.25);color:var(--red);padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;margin-top:1rem}
+
+/* ── NOTICE INTERPRETER ── */
+.notice-grid{display:grid;grid-template-columns:1fr 1fr;gap:2rem}
+.notice-input-area{display:flex;flex-direction:column;gap:12px}
+textarea.notice-ta{
+  width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r2);
+  color:var(--text);padding:16px;font-size:13px;font-family:'Inter',sans-serif;
+  resize:vertical;min-height:220px;outline:none;line-height:1.6;transition:border-color .2s;
+}
+textarea.notice-ta:focus{border-color:var(--green)}
+.interpret-btn{background:var(--green);color:#000;border:none;padding:12px 24px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif;transition:opacity .2s;display:flex;align-items:center;gap:8px;justify-content:center}
+.interpret-btn:hover{opacity:.85}
+.notice-result{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);padding:1.75rem;min-height:280px;display:flex;flex-direction:column;justify-content:center;align-items:center}
+.notice-placeholder{text-align:center;color:var(--text3);font-size:14px}
+.notice-placeholder-icon{font-size:2.5rem;margin-bottom:.75rem;display:block}
+.notice-output{display:none;width:100%}
+.ni-row{margin-bottom:1rem;padding-bottom:1rem;border-bottom:1px solid var(--border)}
+.ni-row:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+.ni-label{font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text3);margin-bottom:4px}
+.ni-val{font-size:14px;color:var(--text);font-weight:500}
+.ni-val.urgent{color:var(--red);font-weight:700}
+.ni-val.ok{color:var(--green)}
+.loading-dots{display:inline-flex;gap:4px}
+.loading-dots span{width:6px;height:6px;border-radius:50%;background:var(--green);animation:bounce .8s infinite}
+.loading-dots span:nth-child(2){animation-delay:.15s}
+.loading-dots span:nth-child(3){animation-delay:.3s}
+@keyframes bounce{0%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}
+
+/* ── FEATURES GRID ── */
+.feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);border-radius:var(--r2);overflow:hidden;margin-top:2.5rem}
+.feat-tile{background:var(--bg2);padding:2rem 1.75rem;transition:background .2s}
+.feat-tile:hover{background:var(--bg3)}
+.feat-num{font-family:'Syne',sans-serif;font-size:2.5rem;font-weight:800;color:var(--border);line-height:1;margin-bottom:1rem}
+.feat-title{font-size:.95rem;font-weight:700;color:var(--text);margin-bottom:.4rem}
+.feat-desc{font-size:13px;color:var(--text2);line-height:1.6}
+.feat-chip{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:3px 8px;border-radius:4px;margin-top:.75rem}
+.chip-g{background:var(--green-bg);color:var(--green)}
+.chip-a{background:var(--amber-bg);color:var(--amber)}
+.chip-b{background:var(--blue-bg);color:var(--blue)}
+.chip-r{background:var(--red-bg);color:var(--red)}
+
+/* ── SCORE ── */
+.score-split{display:grid;grid-template-columns:1fr 1fr;gap:4rem;align-items:start}
+.score-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);padding:2rem}
+.score-big{display:flex;align-items:center;gap:1.5rem;margin-bottom:2rem}
+.score-ring-wrap{position:relative;width:96px;height:96px;flex-shrink:0}
+.score-ring-wrap svg{width:96px;height:96px}
+.score-num-inside{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-family:'Syne',sans-serif;font-size:1.8rem;font-weight:800;color:var(--text);line-height:1}
+.score-meta-title{font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;color:var(--text)}
+.score-meta-sub{font-size:12px;color:var(--text3);margin-top:3px}
+.score-bar-row{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.sbr-label{font-size:12px;color:var(--text2);width:55px;flex-shrink:0}
+.sbr-track{flex:1;height:5px;background:var(--bg4);border-radius:3px;overflow:hidden}
+.sbr-fill{height:100%;border-radius:3px;transition:width .6s}
+.sbr-val{font-size:12px;color:var(--text2);width:28px;text-align:right}
+.score-actions-list{margin-top:1.25rem;background:var(--bg4);border-radius:var(--r);padding:14px}
+.sal-title{font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--amber);margin-bottom:8px}
+.sal-item{font-size:12.5px;color:var(--text2);padding:4px 0;display:flex;align-items:flex-start;gap:8px}
+.sal-item::before{content:'→';color:var(--red);font-weight:700;flex-shrink:0}
+.report-preview{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);padding:2rem}
+.rp-header{display:flex;align-items:center;gap:12px;margin-bottom:1.5rem;padding-bottom:1.25rem;border-bottom:1px solid var(--border)}
+.rp-logo{font-family:'Syne',sans-serif;font-size:13px;font-weight:800;color:var(--green)}
+.rp-title{font-size:11px;color:var(--text3)}
+.rp-company{font-size:13px;font-weight:600;color:var(--text)}
+.rp-row{display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.rp-key{color:var(--text2)}
+.rp-val{color:var(--text);font-weight:600}
+.rp-val.good{color:var(--green)}
+.rp-val.bad{color:var(--red)}
+.rp-dl-btn{background:var(--green);color:#000;border:none;width:100%;padding:11px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;margin-top:1.5rem;font-family:'Inter',sans-serif;transition:opacity .2s}
+.rp-dl-btn:hover{opacity:.85}
+
+/* ── PRICING ── */
+.pricing-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:3rem}
+.p-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);padding:2rem;transition:border-color .2s}
+.p-card:hover{border-color:var(--border2)}
+.p-card.featured{background:var(--bg2);border-color:var(--green)}
+.p-tier{font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);margin-bottom:1rem}
+.p-card.featured .p-tier{color:var(--green)}
+.p-amount{font-family:'Syne',sans-serif;font-size:3rem;font-weight:800;color:var(--text);line-height:1}
+.p-period{font-size:13px;color:var(--text3);margin-top:4px;margin-bottom:1.5rem}
+.p-divider{border:none;border-top:1px solid var(--border);margin:1.5rem 0}
+.p-features{list-style:none;display:flex;flex-direction:column;gap:9px;margin-bottom:2rem}
+.p-features li{font-size:13px;color:var(--text2);display:flex;align-items:flex-start;gap:8px}
+.p-features li::before{content:'✓';color:var(--green);font-weight:700;flex-shrink:0;font-size:13px}
+.p-card.featured .p-features li{color:var(--text)}
+.p-btn{display:block;text-align:center;padding:12px 24px;border-radius:9px;font-size:13px;font-weight:700;text-decoration:none;transition:all .2s;cursor:pointer;border:none;font-family:'Inter',sans-serif;width:100%}
+.p-btn-dark{background:var(--bg4);color:var(--text);border:1px solid var(--border2)}
+.p-btn-dark:hover{border-color:var(--text2)}
+.p-btn-green{background:var(--green);color:#000}
+.p-btn-green:hover{opacity:.85}
+.p-badge{display:inline-block;background:rgba(34,197,94,.12);color:var(--green);font-size:10px;font-weight:700;padding:3px 10px;border-radius:4px;letter-spacing:.5px;margin-bottom:1rem}
+
+/* ── CTA ── */
+.cta-band{background:var(--green);padding:6rem 2rem;text-align:center}
+.cta-band h2{font-family:'Syne',sans-serif;font-size:clamp(2rem,4vw,3.2rem);font-weight:800;letter-spacing:-1px;color:#000;max-width:640px;margin:0 auto 1rem;line-height:1.1}
+.cta-band p{font-size:1.05rem;color:rgba(0,0,0,.65);max-width:480px;margin:0 auto 2.5rem}
+.cta-band .btn-dark{background:#000;color:var(--green);padding:15px 40px;border-radius:10px;font-size:15px;font-weight:700;text-decoration:none;transition:opacity .2s;display:inline-block}
+.cta-band .btn-dark:hover{opacity:.85}
+.cta-band .sub-note{font-size:12px;color:rgba(0,0,0,.45);margin-top:1rem}
+
+/* ── FOOTER ── */
+footer{background:var(--bg2);border-top:1px solid var(--border);padding:2.5rem 2rem}
+.footer-inner{max-width:1100px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem}
+.footer-logo{font-family:'Syne',sans-serif;font-size:17px;font-weight:800;color:var(--text);text-decoration:none}
+.footer-logo span{color:var(--green)}
+.footer-links{display:flex;gap:2rem}
+.footer-links a{font-size:13px;color:var(--text3);text-decoration:none;transition:color .2s}
+.footer-links a:hover{color:var(--text2)}
+.footer-copy{font-size:12px;color:var(--text3)}
+
+/* ── WHATSAPP DEMO ── */
+.wa-demo{background:#0b1e2e;border-radius:var(--r2);padding:1.5rem;max-width:380px}
+.wa-header{display:flex;align-items:center;gap:10px;margin-bottom:1rem;padding-bottom:1rem;border-bottom:1px solid rgba(255,255,255,.08)}
+.wa-icon{width:36px;height:36px;border-radius:50%;background:#25D366;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#000;font-family:'Syne',sans-serif}
+.wa-name{font-size:14px;font-weight:600;color:#fff}
+.wa-status{font-size:11px;color:#25D366}
+.wa-bubble{background:#1f2e3b;border-radius:0 10px 10px 10px;padding:12px 14px;margin-bottom:8px;max-width:90%;font-size:13px;color:#e2e8f0;line-height:1.5}
+.wa-bubble.sent{background:#005c4b;border-radius:10px 0 10px 10px;margin-left:auto}
+.wa-bubble strong{color:#fff}
+.wa-time{font-size:10px;color:rgba(255,255,255,.35);margin-top:4px;text-align:right}
+.wa-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.wa-action-btn{background:rgba(37,211,102,.15);border:1px solid rgba(37,211,102,.3);color:#25D366;padding:7px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;transition:background .2s}
+.wa-action-btn:hover{background:rgba(37,211,102,.25)}
+
+/* ── CA PORTAL ── */
+.ca-dash{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);padding:1.75rem}
+.ca-dash-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem}
+.ca-title{font-family:'Syne',sans-serif;font-size:1rem;font-weight:800;color:var(--text)}
+.ca-badge-count{background:var(--red);color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:100px}
+.ca-row{display:grid;grid-template-columns:2fr 1fr 1fr 120px;gap:12px;align-items:center;padding:10px 12px;border-radius:8px;background:var(--bg4);margin-bottom:6px;font-size:13px}
+.ca-row-head{padding:0 12px;margin-bottom:8px;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text3);display:grid;grid-template-columns:2fr 1fr 1fr 120px;gap:12px}
+.ca-client{font-weight:600;color:var(--text)}
+.ca-dept{color:var(--text2)}
+.ca-deadline{color:var(--text2)}
+.ca-status{padding:4px 10px;border-radius:5px;font-size:11px;font-weight:700;text-align:center}
+.s-filed{background:var(--green-bg);color:var(--green)}
+.s-prog{background:var(--amber-bg);color:var(--amber)}
+.s-over{background:var(--red-bg);color:var(--red)}
+.s-pending{background:var(--bg3);color:var(--text3);border:1px solid var(--border)}
+
+@media(max-width:900px){
+  .bento{grid-template-columns:1fr}.bento-c1,.bento-c2,.bento-c3,.bento-c4{grid-column:span 1}
+  .penalty-calc,.notice-grid,.score-split,.pricing-grid,.feat-grid{grid-template-columns:1fr}
+  nav .nav-links{display:none}
+  .hero-stats{flex-direction:column;border-radius:0;gap:0}
+  .stat{border-right:none;border-bottom:1px solid var(--border)}
+  .stat:last-child{border-bottom:none}
+  .ca-row,.ca-row-head{grid-template-columns:1fr 1fr}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="logo" href="#">Compli<span>Sure</span></a>
+  <ul class="nav-links">
+    <li><a href="#features">Features</a></li>
+    <li><a href="#tools">Live tools</a></li>
+    <li><a href="#pricing">Pricing</a></li>
+    <li><a href="#ca">For CAs</a></li>
+  </ul>
+  <a class="nav-btn" href="#onboard-demo">Generate my calendar →</a>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-glow"></div>
+  <div class="hero-tag"><span class="hero-tag-dot"></span>Early access · Indian SMEs &amp; CAs</div>
+  <h1>Never miss a filing.<br/><span class="italic">Ever again.</span></h1>
+  <p class="hero-sub">CompliSure gives your Pvt Ltd a personalised compliance calendar across MCA, GST, Labour, and Tax — with proactive alerts to both you and your CA.</p>
+  <div class="hero-btns">
+    <a class="btn-green" href="#onboard-demo">Get my free calendar <span>→</span></a>
+    <a class="btn-outline" href="#tools">See live demo</a>
+  </div>
+  <div class="hero-stats">
+    <div class="stat"><div class="stat-n">180+</div><div class="stat-l">Statutory obligations for a Pvt Ltd</div></div>
+    <div class="stat"><div class="stat-n">30–45</div><div class="stat-l">That actually apply to you</div></div>
+    <div class="stat"><div class="stat-n">₹47k</div><div class="stat-l">Avg penalty for one missed DPT-3</div></div>
+    <div class="stat"><div class="stat-n">&lt;5 min</div><div class="stat-l">To get your personalised calendar</div></div>
+  </div>
+</section>
+
+<!-- PROBLEM -->
+<section style="padding-top:4rem">
+  <div class="wrap">
+    <div class="eyebrow">The problem</div>
+    <h2 class="sec-title">The compliance system is broken for founders</h2>
+    <div class="bento">
+      <div class="bento-card bento-c1">
+        <div class="bento-icon icon-red">📋</div>
+        <div class="bento-title">No single source of truth</div>
+        <p class="bento-body">MCA, GSTN, and Income Tax each have separate portals, logins, and calendars. Nothing aggregates them for your specific company profile.</p>
+      </div>
+      <div class="bento-card bento-c2">
+        <div class="bento-icon icon-amber">⚠️</div>
+        <div class="bento-title">Event-triggered filings are invisible — until they cost you</div>
+        <p class="bento-body">Hiring your 10th employee, accepting a director deposit, opening a branch — each triggers new filings nobody tells you about. The DPT-3 penalty is real: a Bengaluru startup accepted ₹5L from a director and had no idea DPT-3 existed.</p>
+        <div class="penalty-pill">⚡ DPT-3 missed → ₹47,000 penalty · compounding daily · Director personally liable</div>
+      </div>
+      <div class="bento-card bento-c3">
+        <div class="bento-icon icon-blue">👤</div>
+        <div class="bento-title">Your CA is a single point of failure</div>
+        <p class="bento-body">Your CA manages 200+ clients with Excel spreadsheets and WhatsApp groups. No audit trail, no escalation system, no shared accountability. One missed filing damages your relationship and costs you lakhs.</p>
+      </div>
+      <div class="bento-card bento-c4">
+        <div class="bento-icon icon-green">📄</div>
+        <div class="bento-title">Government notices are unreadable</div>
+        <p class="bento-body">When a demand letter arrives, founders have no idea what it means or what to do. Legal consultations cost more time than the filing itself.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- LIVE DEMO TOOLS -->
+<section id="tools" style="padding-top:5rem">
+  <div class="wrap">
+    <div class="eyebrow">Live tools</div>
+    <h2 class="sec-title">Try CompliSure right now</h2>
+    <p class="sec-sub">Every tool below is functional. Generate your actual compliance calendar, calculate a live penalty, or interpret a government notice.</p>
+
+    <div class="demo-area" id="onboard-demo">
+      <div class="demo-tabs">
+        <div class="demo-tab active" data-tab="onboard">Smart onboarding</div>
+        <div class="demo-tab" data-tab="penalty">Penalty calculator</div>
+        <div class="demo-tab" data-tab="notice">Notice interpreter</div>
+        <div class="demo-tab" data-tab="whatsapp">WhatsApp reminders</div>
+        <div class="demo-tab" data-tab="ca">CA portal</div>
+      </div>
+
+      <!-- ONBOARDING -->
+      <div class="demo-panel active" id="tab-onboard">
+        <div class="eyebrow" style="margin-bottom:.5rem">6 questions · your personal compliance universe</div>
+        <h3 style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:var(--text);margin-bottom:1.75rem">Generate your compliance calendar</h3>
+        <div class="onboard-form">
+          <div class="field">
+            <label>Company type</label>
+            <select id="co-type">
+              <option value="">Select type</option>
+              <option value="pvt">Private Limited (Pvt Ltd)</option>
+              <option value="llp">LLP</option>
+              <option value="opc">One Person Company (OPC)</option>
+              <option value="prop">Proprietorship</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Industry sector</label>
+            <select id="co-sector">
+              <option value="">Select sector</option>
+              <option value="it">IT Services / SaaS</option>
+              <option value="mfg">Manufacturing</option>
+              <option value="trading">Trading</option>
+              <option value="nbfc">NBFC / Finance</option>
+              <option value="other">Other services</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>State of incorporation</label>
+            <select id="co-state">
+              <option value="">Select state</option>
+              <option value="MH">Maharashtra</option>
+              <option value="KA">Karnataka</option>
+              <option value="DL">Delhi</option>
+              <option value="TN">Tamil Nadu</option>
+              <option value="WB">West Bengal</option>
+              <option value="TG">Telangana</option>
+              <option value="GJ">Gujarat</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Employee headcount</label>
+            <div class="radio-group" id="emp-group">
+              <div class="radio-btn" data-val="0">Just me</div>
+              <div class="radio-btn" data-val="1-9">1–9</div>
+              <div class="radio-btn" data-val="10-19">10–19</div>
+              <div class="radio-btn" data-val="20-99">20–99</div>
+              <div class="radio-btn" data-val="100+">100+</div>
+            </div>
+          </div>
+          <div class="field">
+            <label>GST registration status</label>
+            <div class="radio-group" id="gst-group">
+              <div class="radio-btn" data-val="none">Not registered</div>
+              <div class="radio-btn" data-val="regular">Regular taxpayer</div>
+              <div class="radio-btn" data-val="composition">Composition scheme</div>
+            </div>
+          </div>
+          <div class="field">
+            <label>Accepted deposits from directors / shareholders?</label>
+            <div class="radio-group" id="dep-group">
+              <div class="radio-btn" data-val="yes">Yes</div>
+              <div class="radio-btn" data-val="no">No / Not sure</div>
+            </div>
+          </div>
+          <button class="gen-btn" onclick="generateCalendar()">Generate my compliance calendar →</button>
+        </div>
+        <div class="calendar-output" id="cal-output">
+          <div class="cal-heading" id="cal-heading">Your compliance calendar — 2026–27</div>
+          <div id="cal-items"></div>
+          <div class="cal-summary" id="cal-summary"></div>
+        </div>
+      </div>
+
+      <!-- PENALTY CALCULATOR -->
+      <div class="demo-panel" id="tab-penalty">
+        <div class="eyebrow" style="margin-bottom:.5rem">Live compounding penalty</div>
+        <h3 style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:var(--text);margin-bottom:1.75rem">See what a missed filing is costing you right now</h3>
+        <div class="penalty-calc">
+          <div class="form-col">
+            <div class="pen-form-field">
+              <label>Filing / Form</label>
+              <select id="pen-form">
+                <option value="">Select filing</option>
+                <option value="MGT-7">MGT-7 — Annual Return (MCA)</option>
+                <option value="AOC-4">AOC-4 — Financial Statements (MCA)</option>
+                <option value="DPT-3">DPT-3 — Return of Deposits</option>
+                <option value="GSTR-3B">GSTR-3B — Monthly GST Return</option>
+                <option value="ITR">ITR — Income Tax Return</option>
+                <option value="TDS">TDS Return (26Q / 24Q)</option>
+                <option value="PF">PF Challan</option>
+                <option value="ESI">ESI Challan</option>
+                <option value="DIR-12">DIR-12 — Director Change</option>
+              </select>
+            </div>
+            <div class="pen-form-field">
+              <label>Days overdue</label>
+              <input type="number" id="pen-days" value="14" min="1" max="365" placeholder="Number of days"/>
+            </div>
+            <div class="pen-form-field">
+              <label>Company type</label>
+              <select id="pen-cotype">
+                <option value="pvt">Pvt Ltd / OPC</option>
+                <option value="llp">LLP</option>
+                <option value="small">Small company (&lt;₹2Cr turnover)</option>
+              </select>
+            </div>
+            <button class="calc-btn" onclick="calculatePenalty()">Calculate penalty →</button>
+          </div>
+          <div class="result-col" id="pen-result-col">
+            <div style="text-align:center;color:var(--text3);padding:2rem 0">
+              <div style="font-size:2rem;margin-bottom:.75rem">📊</div>
+              <div style="font-size:14px">Select a filing and days overdue</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- NOTICE INTERPRETER -->
+      <div class="demo-panel" id="tab-notice">
+        <div class="eyebrow" style="margin-bottom:.5rem">AI-powered · plain language</div>
+        <h3 style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:var(--text);margin-bottom:1.75rem">Paste any government notice — get an instant explanation</h3>
+        <div class="notice-grid">
+          <div class="notice-input-area">
+            <textarea class="notice-ta" id="notice-text" placeholder="Paste notice text here…
+
+Example: 'This is to inform that your company M/s ABC Pvt Ltd (CIN: U72200KA2021PTC134567) has failed to file Form MGT-7 for the financial year 2022-23 within the prescribed time. A penalty of ₹100 per day has been levied under Section 92(5) of the Companies Act 2013. The total outstanding amount is ₹18,200. You are directed to make payment within 30 days failing which further action will be initiated.'"></textarea>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+              <button class="interpret-btn" style="flex:1" onclick="interpretNotice()">
+                <span>Interpret this notice</span>
+                <span>→</span>
+              </button>
+              <button class="interpret-btn" style="background:var(--bg4);color:var(--text2);border:1px solid var(--border2);flex:0" onclick="loadSampleNotice()">Load sample</button>
+            </div>
+          </div>
+          <div class="notice-result" id="notice-result">
+            <div class="notice-placeholder">
+              <span class="notice-placeholder-icon">📋</span>
+              <div>Paste a notice to get an instant plain-language breakdown</div>
+            </div>
+            <div class="notice-output" id="notice-output"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- WHATSAPP -->
+      <div class="demo-panel" id="tab-whatsapp">
+        <div class="eyebrow" style="margin-bottom:.5rem">Non-negotiable for Indian SMEs</div>
+        <h3 style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:var(--text);margin-bottom:1.75rem">Reminders on the channels you actually check</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:2rem;align-items:start">
+          <div>
+            <p style="font-size:14px;color:var(--text2);line-height:1.7;margin-bottom:1.5rem">CompliSure sends alerts at 30, 7, and 3 days before each deadline — and again on the due date. Both you and your CA receive identical messages. Mark as filed directly from the chat, no app login required.</p>
+            <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:1.5rem">
+              <div style="display:flex;gap:12px;align-items:center;padding:12px 16px;background:var(--bg3);border:1px solid var(--border);border-radius:10px">
+                <div style="width:8px;height:8px;border-radius:50%;background:var(--red);flex-shrink:0"></div>
+                <div>
+                  <div style="font-size:13px;font-weight:600;color:var(--text)">3 days before</div>
+                  <div style="font-size:12px;color:var(--text3)">WhatsApp + Push — Mark filed / Escalate to CA</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:12px;align-items:center;padding:12px 16px;background:var(--bg3);border:1px solid var(--border);border-radius:10px">
+                <div style="width:8px;height:8px;border-radius:50%;background:var(--amber);flex-shrink:0"></div>
+                <div>
+                  <div style="font-size:13px;font-weight:600;color:var(--text)">7 days before</div>
+                  <div style="font-size:12px;color:var(--text3)">WhatsApp + Email — Both owner and CA alerted</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:12px;align-items:center;padding:12px 16px;background:var(--bg3);border:1px solid var(--border);border-radius:10px">
+                <div style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0"></div>
+                <div>
+                  <div style="font-size:13px;font-weight:600;color:var(--text)">30 days before</div>
+                  <div style="font-size:12px;color:var(--text3)">WhatsApp + Email — Early heads-up, plan ahead</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="wa-demo">
+            <div class="wa-header">
+              <div class="wa-icon">CS</div>
+              <div><div class="wa-name">CompliSure</div><div class="wa-status">● Online</div></div>
+            </div>
+            <div class="wa-bubble">
+              <strong>⚠️ 3 days remaining</strong><br/>
+              <strong>GSTR-3B</strong> for April is due on <strong>20 May 2026</strong>.<br/><br/>
+              Penalty if missed: ₹50/day (min ₹1,000)<br/>
+              Your CA: Rajesh Mehta &amp; Co — Not yet started
+            </div>
+            <div class="wa-time">Today · 9:00 AM</div>
+            <div class="wa-actions">
+              <button class="wa-action-btn" onclick="waAction(this,'filed')">✓ Mark as filed</button>
+              <button class="wa-action-btn" onclick="waAction(this,'remind')">📣 Remind CA</button>
+              <button class="wa-action-btn" onclick="waAction(this,'penalty')">📊 See penalty</button>
+            </div>
+            <div id="wa-response" style="margin-top:10px;display:none"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CA PORTAL -->
+      <div class="demo-panel" id="tab-ca" id="ca">
+        <div class="eyebrow" style="margin-bottom:.5rem">Multi-client dashboard</div>
+        <h3 style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:var(--text);margin-bottom:1.75rem">Your entire client portfolio — one pane</h3>
+        <div class="ca-dash">
+          <div class="ca-dash-header">
+            <div class="ca-title">Pending items across all clients <span class="ca-badge-count" id="pending-count">4 urgent</span></div>
+            <button onclick="markAllFiled()" style="background:var(--green-bg);color:var(--green);border:1px solid rgba(34,197,94,.25);padding:7px 14px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif">Mark selected filed</button>
+          </div>
+          <div class="ca-row-head">
+            <span>Client / Filing</span><span>Dept</span><span>Due date</span><span>Status</span>
+          </div>
+          <div id="ca-rows">
+            <div class="ca-row">
+              <div><div class="ca-client">Zephyr Tech Pvt Ltd</div><div class="ca-dept" style="font-size:11px;color:var(--text3)">GSTR-3B — April</div></div>
+              <div class="ca-dept">GST</div>
+              <div class="ca-deadline" style="color:var(--red);font-weight:600">20 Apr</div>
+              <select class="ca-status-sel" style="background:var(--red-bg);color:var(--red);border:1px solid rgba(239,68,68,.25);border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;font-family:'Inter',sans-serif;cursor:pointer;outline:none" onchange="updateStatus(this)">
+                <option value="overdue" selected>Overdue</option>
+                <option value="inprogress">In progress</option>
+                <option value="filed">Filed</option>
+              </select>
+            </div>
+            <div class="ca-row">
+              <div><div class="ca-client">Novacraft LLP</div><div class="ca-dept" style="font-size:11px;color:var(--text3)">TDS Return Q4</div></div>
+              <div class="ca-dept">Income Tax</div>
+              <div class="ca-deadline" style="color:var(--amber);font-weight:600">30 Apr</div>
+              <select class="ca-status-sel" style="background:var(--amber-bg);color:var(--amber);border:1px solid rgba(245,158,11,.25);border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;font-family:'Inter',sans-serif;cursor:pointer;outline:none" onchange="updateStatus(this)">
+                <option value="inprogress" selected>In progress</option>
+                <option value="filed">Filed</option>
+                <option value="overdue">Overdue</option>
+              </select>
+            </div>
+            <div class="ca-row">
+              <div><div class="ca-client">Merkle Biotech Pvt Ltd</div><div class="ca-dept" style="font-size:11px;color:var(--text3)">PF Challan — March</div></div>
+              <div class="ca-dept">Labour</div>
+              <div class="ca-deadline" style="color:var(--red);font-weight:600">15 Apr</div>
+              <select class="ca-status-sel" style="background:var(--red-bg);color:var(--red);border:1px solid rgba(239,68,68,.25);border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;font-family:'Inter',sans-serif;cursor:pointer;outline:none" onchange="updateStatus(this)">
+                <option value="overdue" selected>Overdue</option>
+                <option value="inprogress">In progress</option>
+                <option value="filed">Filed</option>
+              </select>
+            </div>
+            <div class="ca-row">
+              <div><div class="ca-client">Stackline Pvt Ltd</div><div class="ca-dept" style="font-size:11px;color:var(--text3)">DIR-3 KYC</div></div>
+              <div class="ca-dept">MCA</div>
+              <div class="ca-deadline" style="color:var(--amber);font-weight:600">30 Apr</div>
+              <select class="ca-status-sel" style="background:var(--bg3);color:var(--text3);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;font-family:'Inter',sans-serif;cursor:pointer;outline:none" onchange="updateStatus(this)">
+                <option value="pending" selected>Not started</option>
+                <option value="inprogress">In progress</option>
+                <option value="filed">Filed</option>
+              </select>
+            </div>
+            <div class="ca-row">
+              <div><div class="ca-client">Zephyr Tech Pvt Ltd</div><div class="ca-dept" style="font-size:11px;color:var(--text3)">GSTR-1 — April</div></div>
+              <div class="ca-dept">GST</div>
+              <div class="ca-deadline" style="color:var(--green)">11 Apr</div>
+              <select class="ca-status-sel" style="background:var(--green-bg);color:var(--green);border:1px solid rgba(34,197,94,.25);border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;font-family:'Inter',sans-serif;cursor:pointer;outline:none" onchange="updateStatus(this)">
+                <option value="filed" selected>Filed ✓</option>
+                <option value="inprogress">In progress</option>
+                <option value="overdue">Overdue</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="wrap">
+    <div class="eyebrow">Platform features</div>
+    <h2 class="sec-title">Everything compliance, start to proof</h2>
+    <p class="sec-sub">CompliSure solves the three layers no existing tool addresses together: discovery, personalisation, and accountability.</p>
+    <div class="feat-grid">
+      <div class="feat-tile"><div class="feat-num">01</div><div class="feat-title">Smart onboarding</div><p class="feat-desc">6 questions generate your personalised compliance universe — 30–45 items, not 180+ — in under 30 seconds.</p><span class="feat-chip chip-g">Core · P0</span></div>
+      <div class="feat-tile"><div class="feat-num">02</div><div class="feat-title">Master compliance calendar</div><p class="feat-desc">Single-pane calendar across MCA, GST, Income Tax, Labour. Colour-coded urgency with penalty preview on every item.</p><span class="feat-chip chip-g">Core · P0</span></div>
+      <div class="feat-tile"><div class="feat-num">03</div><div class="feat-title">Event-triggered engine</div><p class="feat-desc">Log a business event — hiring, deposit, director change — and new obligations surface automatically with deadlines.</p><span class="feat-chip chip-a">Differentiator</span></div>
+      <div class="feat-tile"><div class="feat-num">04</div><div class="feat-title">CA collaboration layer</div><p class="feat-desc">Invite your CA with one link. Both receive identical alerts. You see filing status in real time — no chasing.</p><span class="feat-chip chip-b">Shared accountability</span></div>
+      <div class="feat-tile"><div class="feat-num">05</div><div class="feat-title">Penalty calculator</div><p class="feat-desc">Live compounding penalty for any overdue filing — today, +7 days, +30 days — with director liability flags.</p><span class="feat-chip chip-r">Urgency</span></div>
+      <div class="feat-tile"><div class="feat-num">06</div><div class="feat-title">Notice interpreter</div><p class="feat-desc">Paste any government notice. Get a plain-language explanation: what it means, why you received it, what to do by when.</p><span class="feat-chip chip-b">AI-powered</span></div>
+      <div class="feat-tile"><div class="feat-num">07</div><div class="feat-title">WhatsApp reminders</div><p class="feat-desc">Alerts at 30, 7, 3 days and on due date via WhatsApp. Mark as filed directly from the message.</p><span class="feat-chip chip-g">Non-negotiable</span></div>
+      <div class="feat-tile"><div class="feat-num">08</div><div class="feat-title">Document vault</div><p class="feat-desc">Centralised storage for all filed forms and government notices. Searchable and linked to calendar items.</p><span class="feat-chip chip-b">Storage</span></div>
+      <div class="feat-tile"><div class="feat-num">09</div><div class="feat-title">Compliance health score</div><p class="feat-desc">A 0–100 score across MCA, GST, Labour, and Tax — with one-click investor-ready PDF report.</p><span class="feat-chip chip-a">Due diligence</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- SCORE -->
+<section style="background:var(--bg2);border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+  <div class="wrap">
+    <div class="eyebrow">Compliance health score</div>
+    <h2 class="sec-title">Your compliance posture, quantified</h2>
+    <p class="sec-sub">A single score useful for internal accountability — and essential for investor due diligence.</p>
+    <div class="score-split">
+      <div class="score-card">
+        <div class="score-big">
+          <div class="score-ring-wrap">
+            <svg viewBox="0 0 96 96">
+              <circle cx="48" cy="48" r="40" fill="none" stroke="#1F1F23" stroke-width="8"/>
+              <circle cx="48" cy="48" r="40" fill="none" stroke="#22C55E" stroke-width="8" stroke-dasharray="175 251" stroke-dashoffset="62" stroke-linecap="round"/>
+            </svg>
+            <div class="score-num-inside">74</div>
+          </div>
+          <div>
+            <div class="score-meta-title">Good standing</div>
+            <div class="score-meta-sub">Updated Apr 17, 2026</div>
+          </div>
+        </div>
+        <div class="score-bar-row"><div class="sbr-label">MCA</div><div class="sbr-track"><div class="sbr-fill" style="width:88%;background:#22C55E"></div></div><div class="sbr-val">88</div></div>
+        <div class="score-bar-row"><div class="sbr-label">GST</div><div class="sbr-track"><div class="sbr-fill" style="width:79%;background:#22C55E"></div></div><div class="sbr-val">79</div></div>
+        <div class="score-bar-row"><div class="sbr-label">Labour</div><div class="sbr-track"><div class="sbr-fill" style="width:62%;background:#F59E0B"></div></div><div class="sbr-val">62</div></div>
+        <div class="score-bar-row"><div class="sbr-label">Tax</div><div class="sbr-track"><div class="sbr-fill" style="width:71%;background:#22C55E"></div></div><div class="sbr-val">71</div></div>
+        <div class="score-actions-list">
+          <div class="sal-title">What's dragging your score</div>
+          <div class="sal-item">ESI registration overdue · Labour · +15 pts if resolved</div>
+          <div class="sal-item">PT challan Q4 unpaid · +7 pts</div>
+          <div class="sal-item">2 items without proof uploaded · +5 pts</div>
+        </div>
+      </div>
+      <div>
+        <div class="report-preview">
+          <div class="rp-header">
+            <div>
+              <div class="rp-logo">CompliSure</div>
+              <div class="rp-title">Investor Readiness Report</div>
+            </div>
+            <div>
+              <div class="rp-company">Zephyr Tech Pvt Ltd</div>
+              <div style="font-size:11px;color:var(--text3)">CIN: U72200KA2021PTC134567</div>
+            </div>
+          </div>
+          <div class="rp-row"><span class="rp-key">Compliance health score</span><span class="rp-val good">74 / 100</span></div>
+          <div class="rp-row"><span class="rp-key">Filings on time (12 months)</span><span class="rp-val good">41 of 44</span></div>
+          <div class="rp-row"><span class="rp-key">Pending penalty exposure</span><span class="rp-val bad">₹18,200</span></div>
+          <div class="rp-row"><span class="rp-key">Director liability flags</span><span class="rp-val bad">2 active</span></div>
+          <div class="rp-row"><span class="rp-key">Document vault coverage</span><span class="rp-val">88%</span></div>
+          <div class="rp-row"><span class="rp-key">Report generated</span><span class="rp-val">Apr 17, 2026</span></div>
+          <button class="rp-dl-btn" onclick="alert('In the live product, this generates a branded PDF instantly.')">Download investor PDF report →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section id="pricing">
+  <div class="wrap">
+    <div style="text-align:center;margin-bottom:.5rem"><div class="eyebrow" style="display:inline-block">Pricing</div></div>
+    <h2 class="sec-title" style="text-align:center;margin:0 auto">Simple, transparent plans</h2>
+    <p class="sec-sub" style="text-align:center;margin:1rem auto 0">No surprises. CAs always get a free account. Cancel any time.</p>
+    <div class="pricing-grid">
+      <div class="p-card">
+        <div class="p-tier">Starter</div>
+        <div class="p-amount">Free</div>
+        <div class="p-period">Forever, one company</div>
+        <hr class="p-divider"/>
+        <ul class="p-features">
+          <li>Personalised compliance calendar</li>
+          <li>30-day email reminders</li>
+          <li>5 event-triggered checks</li>
+          <li>Basic health score</li>
+          <li>Document vault (500 MB)</li>
+        </ul>
+        <button class="p-btn p-btn-dark" onclick="alert('Early access signup coming soon!')">Get started free</button>
+      </div>
+      <div class="p-card featured">
+        <div class="p-badge">Most popular</div>
+        <div class="p-tier">Professional</div>
+        <div class="p-amount">₹999</div>
+        <div class="p-period">/ month · billed annually</div>
+        <hr class="p-divider"/>
+        <ul class="p-features">
+          <li>Everything in Starter</li>
+          <li>WhatsApp reminders (30/7/3 days)</li>
+          <li>Unlimited event-triggered checks</li>
+          <li>CA collaboration layer</li>
+          <li>Live penalty calculator</li>
+          <li>Notice interpreter (AI)</li>
+          <li>Investor readiness report</li>
+          <li>Document vault (2 GB)</li>
+          <li>All 28 states coverage</li>
+        </ul>
+        <button class="p-btn p-btn-green" onclick="alert('Start your 14-day free trial — no card required.')">Start free trial →</button>
+      </div>
+      <div class="p-card" id="ca">
+        <div class="p-tier">CA / CS Firm</div>
+        <div class="p-amount">₹2,499</div>
+        <div class="p-period">/ month · up to 50 clients</div>
+        <hr class="p-divider"/>
+        <ul class="p-features">
+          <li>Multi-client dashboard</li>
+          <li>All Professional features per client</li>
+          <li>Priority pending items view</li>
+          <li>CA-branded reminder messages</li>
+          <li>Bulk CSV export</li>
+          <li>Full audit trail with timestamps</li>
+          <li>Dedicated onboarding</li>
+        </ul>
+        <button class="p-btn p-btn-dark" onclick="alert('Talk to our team for a demo tailored to your firm.')">Talk to us</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-band">
+  <div class="eyebrow" style="color:rgba(0,0,0,.5);margin-bottom:.75rem">Get started today</div>
+  <h2>Stop finding out about filings from penalty notices.</h2>
+  <p>6 questions. Your personalised compliance calendar in under 5 minutes — free, forever.</p>
+  <a class="btn-dark" href="#onboard-demo">Generate my compliance calendar →</a>
+  <div class="sub-note">No credit card required · Works for Pvt Ltd, LLP, and Proprietorships</div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-inner">
+    <a class="footer-logo" href="#">Compli<span>Sure</span></a>
+    <div class="footer-links">
+      <a href="#">Privacy policy</a>
+      <a href="#">Terms of service</a>
+      <a href="#">Regulatory disclaimer</a>
+      <a href="#">Contact</a>
+    </div>
+    <div class="footer-copy">© 2026 CompliSure. Confidential &amp; Proprietary.</div>
+  </div>
+</footer>
+
+<script>
+/* ── TABS ── */
+document.querySelectorAll('.demo-tab').forEach(tab=>{
+  tab.addEventListener('click',()=>{
+    document.querySelectorAll('.demo-tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.demo-panel').forEach(p=>p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-'+tab.dataset.tab).classList.add('active');
+  });
+});
+
+/* ── RADIO BUTTONS ── */
+document.querySelectorAll('.radio-group').forEach(grp=>{
+  grp.querySelectorAll('.radio-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      grp.querySelectorAll('.radio-btn').forEach(b=>b.classList.remove('sel'));
+      btn.classList.add('sel');
+    });
+  });
+});
+
+/* ── COMPLIANCE DB ── */
+const DB={
+  base:[
+    {name:'MGT-7 — Annual Return',dept:'MCA',due:'Sep 2026',urgency:'a',pen:'₹100/day (dir. liability)',dir:true},
+    {name:'AOC-4 — Financial Statements',dept:'MCA',due:'Oct 2026',urgency:'a',pen:'₹100/day',dir:true},
+    {name:'DIR-3 KYC — All Directors',dept:'MCA',due:'Sep 2026',urgency:'a',pen:'₹5,000 flat + DIN deactivation',dir:true},
+    {name:'Advance Tax — Q1',dept:'Income Tax',due:'15 Jun',urgency:'a',pen:'1% per month (Sec 234B/C)'},
+    {name:'Advance Tax — Q2',dept:'Income Tax',due:'15 Sep',urgency:'g',pen:'1% per month'},
+    {name:'ITR — Income Tax Return',dept:'Income Tax',due:'31 Oct',urgency:'g',pen:'₹5,000 (late fee)'},
+    {name:'TDS Return — Q4 (26Q)',dept:'Income Tax',due:'31 May',urgency:'a',pen:'₹200/day (Sec 234E)'},
+  ],
+  gst_regular:[
+    {name:'GSTR-1 — Outward Supplies',dept:'GST',due:'11th every month',urgency:'r',pen:'₹50/day (min ₹1,000)'},
+    {name:'GSTR-3B — Monthly Return',dept:'GST',due:'20th every month',urgency:'r',pen:'₹50/day (min ₹1,000)'},
+    {name:'GSTR-9 — Annual Return',dept:'GST',due:'31 Dec',urgency:'g',pen:'₹200/day (max 0.25% turnover)'},
+  ],
+  gst_composition:[
+    {name:'GSTR-4 — Composition Return',dept:'GST',due:'30 Apr',urgency:'r',pen:'₹200/day'},
+  ],
+  emp_1_9:[
+    {name:'PT Registration',dept:'Professional Tax',due:'Within 30 days of hire',urgency:'a',pen:'₹5,000 flat'},
+  ],
+  emp_10plus:[
+    {name:'PF Registration (EPFO)',dept:'Labour / PF',due:'Within 30 days of 10th hire',urgency:'r',pen:'₹5,000 + 12% contribution interest',dir:true},
+    {name:'PF Challan — Monthly',dept:'Labour / PF',due:'15th every month',urgency:'r',pen:'12% p.a. interest + ₹5,000 penalty'},
+    {name:'PT Registration & Challan',dept:'Professional Tax',due:'State-specific',urgency:'a',pen:'₹5,000 flat'},
+  ],
+  emp_20plus:[
+    {name:'ESI Registration',dept:'Labour / ESI',due:'Within 15 days of 20th hire',urgency:'r',pen:'₹5,000 per director per day',dir:true},
+    {name:'ESI Challan — Monthly',dept:'Labour / ESI',due:'21st every month',urgency:'r',pen:'₹5,000 + simple interest'},
+  ],
+  deposits:[
+    {name:'DPT-3 — Return of Deposits',dept:'MCA',due:'30 Jun annually',urgency:'r',pen:'₹47,000+ (₹25k company + ₹1k/day, dir. personally liable)',dir:true},
+  ],
+  state_MH:[
+    {name:'Maharashtra Shop & Estab. Registration',dept:'Shop Act (MH)',due:'Within 30 days of opening',urgency:'a',pen:'₹2,000–₹5,000'},
+    {name:'Maharashtra PT Challan — Monthly',dept:'Prof. Tax (MH)',due:'Last day of month',urgency:'r',pen:'₹300 + 1.25%/month'},
+  ],
+  state_KA:[
+    {name:'Karnataka S&E Registration',dept:'Shop Act (KA)',due:'Before commencing business',urgency:'r',pen:'₹5,000 flat'},
+    {name:'Karnataka PT Challan — Monthly',dept:'Prof. Tax (KA)',due:'20th every month',urgency:'r',pen:'₹100/day'},
+  ],
+  state_DL:[
+    {name:'Delhi S&E Registration',dept:'Shop Act (DL)',due:'Within 30 days of opening',urgency:'a',pen:'₹2,000 flat'},
+  ],
+  state_TN:[
+    {name:'Tamil Nadu PT Registration',dept:'Prof. Tax (TN)',due:'Within 30 days of hire',urgency:'a',pen:'₹1,000 + arrears'},
+  ],
+};
+
+function generateCalendar(){
+  const type=document.getElementById('co-type').value;
+  const state=document.getElementById('co-state').value;
+  const emp=document.querySelector('#emp-group .radio-btn.sel')?.dataset.val||'';
+  const gst=document.querySelector('#gst-group .radio-btn.sel')?.dataset.val||'none';
+  const dep=document.querySelector('#dep-group .radio-btn.sel')?.dataset.val||'no';
+  if(!type||!state||!emp){alert('Please complete all fields before generating.');return;}
+  let items=[...DB.base];
+  if(gst==='regular')items=[...items,...DB.gst_regular];
+  if(gst==='composition')items=[...items,...DB.gst_composition];
+  if(['1-9','10-19','20-99','100+'].includes(emp))items=[...items,...DB.emp_1_9];
+  if(['10-19','20-99','100+'].includes(emp))items=[...items,...DB.emp_10plus];
+  if(['20-99','100+'].includes(emp))items=[...items,...DB.emp_20plus];
+  if(dep==='yes')items=[...items,...DB.deposits];
+  const stateKey='state_'+state;
+  if(DB[stateKey])items=[...items,...DB[stateKey]];
+  const cont=document.getElementById('cal-items');
+  cont.innerHTML='';
+  items.forEach(it=>{
+    const row=document.createElement('div');
+    row.className='cal-row';
+    row.innerHTML=`<div class="dot dot-${it.urgency}"></div><div class="cal-info"><div class="cal-name">${it.name}${it.dir?' <span style="font-size:10px;background:rgba(239,68,68,.15);color:var(--red);padding:2px 6px;border-radius:4px;font-weight:700;margin-left:4px">DIR LIABILITY</span>':''}</div><div class="cal-dept">${it.dept}</div></div><div class="cal-due">${it.due}</div><div class="cal-pen pen-${it.urgency==='g'?'a':it.urgency}">${it.pen}</div>`;
+    cont.appendChild(row);
+  });
+  document.getElementById('cal-heading').textContent=`Your compliance calendar · ${items.length} items personalised`;
+  document.getElementById('cal-summary').textContent=`✓ ${items.length} obligations identified for your profile (${type.toUpperCase()} · ${state} · ${emp} employees · GST: ${gst}). Out of 180+ total, only these apply to you.`;
+  document.getElementById('cal-output').style.display='block';
+  document.getElementById('cal-output').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+/* ── PENALTY CALCULATOR ── */
+const PEN_DATA={
+  'MGT-7':{base:100,daily:100,dir:true,max:null,note:'Under Sec 92(5) Companies Act'},
+  'AOC-4':{base:100,daily:100,dir:true,max:null,note:'Under Sec 137(3) Companies Act'},
+  'DPT-3':{base:25000,daily:500,dir:true,max:null,note:'Company ₹25k + every officer ₹1k/day'},
+  'GSTR-3B':{base:1000,daily:50,dir:false,max:5000,note:'Min ₹1,000; max ₹5,000 per return'},
+  'ITR':{base:5000,daily:0,dir:false,max:10000,note:'₹5k if filed before Dec 31; ₹10k after'},
+  'TDS':{base:200,daily:200,dir:true,max:null,note:'Sec 234E ₹200/day up to TDS amount'},
+  'PF':{base:5000,daily:75,dir:true,max:null,note:'₹5,000 + 12% p.a. on arrears'},
+  'ESI':{base:5000,daily:100,dir:true,max:null,note:'₹5,000 per default + interest'},
+  'DIR-12':{base:100,daily:100,dir:true,max:null,note:'Under Sec 168/169 Companies Act'},
+};
+
+function calculatePenalty(){
+  const form=document.getElementById('pen-form').value;
+  const days=parseInt(document.getElementById('pen-days').value)||1;
+  if(!form){alert('Please select a filing.');return;}
+  const d=PEN_DATA[form];
+  if(!d){return;}
+  const now=d.base+(d.daily*days);
+  const in7=d.base+(d.daily*(days+7));
+  const in30=d.base+(d.daily*(days+30));
+  const cap=v=>d.max?Math.min(v,d.max):v;
+  const fmt=n=>'₹'+Math.round(cap(n)).toLocaleString('en-IN');
+  const pct=Math.min(100,Math.round((cap(now)/Math.max(cap(in30),1))*100));
+  document.getElementById('pen-result-col').innerHTML=`
+    <div class="penalty-amount">${fmt(now)}</div>
+    <div class="penalty-label">${days} day${days!==1?'s':''} overdue · ${form}</div>
+    <div class="pen-bar-label" style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Penalty escalation</div>
+    <div class="pen-bar-track"><div class="pen-bar-fill" style="width:${pct}%"></div></div>
+    <div class="pen-timeline">
+      <div class="pen-t-row"><span class="pen-t-label">Today (${days} days overdue)</span><span class="pen-t-val">${fmt(now)}</span></div>
+      <div class="pen-t-row"><span class="pen-t-label">In 7 more days</span><span class="pen-t-val">${fmt(in7)}</span></div>
+      <div class="pen-t-row"><span class="pen-t-label">In 30 more days</span><span class="pen-t-val">${fmt(in30)}</span></div>
+    </div>
+    ${d.dir?`<div class="dir-badge">⚡ Director personally liable for this penalty</div>`:''}
+    <div style="margin-top:1rem;font-size:12px;color:var(--text3);line-height:1.5">${d.note}${d.max?` · Capped at ₹${d.max.toLocaleString('en-IN')}`:''}</div>
+  `;
+}
+
+/* ── NOTICE INTERPRETER ── */
+const SAMPLE_NOTICE=`This is to inform that your company M/s Zephyr Tech Pvt Ltd (CIN: U72200KA2021PTC134567) has failed to file Form MGT-7 (Annual Return) for the financial year 2022-23 within the prescribed time under Section 92(4) of the Companies Act, 2013.
+
+A penalty of ₹100 per day has been levied under Section 92(5) from the due date of filing. The total outstanding penalty amount as on date is ₹18,200.
+
+You are hereby directed to file the required return and pay the penalty amount within 30 days from the date of this notice. Failure to comply may result in prosecution proceedings and disqualification of directors under Section 164(2) of the Companies Act.`;
+
+const NOTICE_PATTERNS=[
+  {pattern:/MGT-7|annual.?return/i,type:'MCA penalty notice',reason:'Annual Return (MGT-7) was not filed within 60 days of AGM',action:'File MGT-7 on MCA portal and pay penalty challan',urgency:'HIGH',deadline:'30 days from notice date',ca:'Company Secretary / CA strongly recommended'},
+  {pattern:/AOC-4|financial.?stat/i,type:'MCA penalty notice',reason:'Financial Statements (AOC-4) not filed within 30 days of AGM',action:'File AOC-4 on MCA portal immediately',urgency:'HIGH',deadline:'30 days from notice date',ca:'CA required for signing the financial statements'},
+  {pattern:/DPT-3|deposit/i,type:'MCA deposits notice',reason:'DPT-3 (Return of Deposits) not filed by June 30',action:'File DPT-3 on MCA portal and pay accumulated penalty',urgency:'CRITICAL — Director personally liable',deadline:'Immediate',ca:'CA / CS required; do not delay'},
+  {pattern:/GSTR|GST|tax.?invoice/i,type:'GST demand notice',reason:'GST return not filed or discrepancy in GSTR-1 vs GSTR-3B',action:'File pending return and respond on GST portal',urgency:'HIGH',deadline:'As specified in notice (usually 30 days)',ca:'GST practitioner / CA recommended'},
+  {pattern:/TDS|194|192|26Q|24Q/i,type:'TDS demand notice',reason:'TDS return not filed or short deduction/deposit',action:'File overdue TDS return and deposit shortfall with interest',urgency:'MEDIUM-HIGH',deadline:'30 days from notice date',ca:'Tax consultant recommended'},
+  {pattern:/PF|provident.?fund|EPFO/i,type:'PF compliance notice',reason:'PF contribution not deposited or registration not done',action:'Deposit PF amount immediately and register with EPFO',urgency:'HIGH — Directors personally liable',deadline:'Immediate',ca:'Labour consultant / CA recommended'},
+  {pattern:/section.?164|director.?disqualif/i,type:'Director disqualification notice',reason:'Company has failed to file returns for 3+ consecutive years',action:'File all pending returns and apply for DIN reactivation',urgency:'CRITICAL',deadline:'Immediate',ca:'Company Secretary essential — legal counsel advised'},
+];
+
+function loadSampleNotice(){document.getElementById('notice-text').value=SAMPLE_NOTICE;}
+
+function interpretNotice(){
+  const text=document.getElementById('notice-text').value.trim();
+  if(!text){alert('Please paste a notice to interpret.');return;}
+  const res=document.getElementById('notice-result');
+  const out=document.getElementById('notice-output');
+  const placeholder=res.querySelector('.notice-placeholder');
+  placeholder.style.display='none';
+  out.style.display='block';
+  out.innerHTML=`<div style="display:flex;justify-content:center;padding:2rem"><div class="loading-dots"><span></span><span></span><span></span></div></div>`;
+  setTimeout(()=>{
+    let match=null;
+    for(const p of NOTICE_PATTERNS){if(p.pattern.test(text)){match=p;break;}}
+    const penMatch=text.match(/₹[\d,]+/g);
+    const penalty=penMatch?penMatch[0]:'Amount not specified';
+    const daysMatch=text.match(/(\d+)\s*days/i);
+    const respDays=daysMatch?daysMatch[1]+' days':'As specified';
+    if(!match){
+      out.innerHTML=`
+        <div class="ni-row"><div class="ni-label">Notice type</div><div class="ni-val">Regulatory / Compliance notice</div></div>
+        <div class="ni-row"><div class="ni-label">Amount mentioned</div><div class="ni-val urgent">${penalty}</div></div>
+        <div class="ni-row"><div class="ni-label">Response deadline</div><div class="ni-val urgent">${respDays}</div></div>
+        <div class="ni-row"><div class="ni-label">Recommended action</div><div class="ni-val">Consult your CA or CS immediately with this notice</div></div>
+        <div class="ni-row"><div class="ni-label">Urgency</div><div class="ni-val urgent">HIGH — Do not ignore</div></div>
+        <div style="margin-top:1rem;padding:10px 14px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);border-radius:8px;font-size:12px;color:var(--amber)">Note: CompliSure provides general guidance only. This is not legal advice — please consult a qualified professional for complex notices.</div>
+      `;
+    } else {
+      out.innerHTML=`
+        <div class="ni-row"><div class="ni-label">Notice type</div><div class="ni-val">${match.type}</div></div>
+        <div class="ni-row"><div class="ni-label">Why you received this</div><div class="ni-val">${match.reason}</div></div>
+        <div class="ni-row"><div class="ni-label">Amount outstanding</div><div class="ni-val urgent">${penalty}</div></div>
+        <div class="ni-row"><div class="ni-label">Required action</div><div class="ni-val">${match.action}</div></div>
+        <div class="ni-row"><div class="ni-label">Response deadline</div><div class="ni-val urgent">${match.deadline}</div></div>
+        <div class="ni-row"><div class="ni-label">Urgency level</div><div class="ni-val ${match.urgency.includes('CRITICAL')?'urgent':'ok'}">${match.urgency}</div></div>
+        <div class="ni-row"><div class="ni-label">Professional needed?</div><div class="ni-val">${match.ca}</div></div>
+        <div style="margin-top:1rem;padding:10px 14px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);border-radius:8px;font-size:12px;color:var(--amber)">CompliSure provides general guidance only — not legal advice. Consult your CA or CS before responding to any notice.</div>
+      `;
+    }
+  },900);
+}
+
+/* ── WHATSAPP ACTIONS ── */
+function waAction(btn,action){
+  const res=document.getElementById('wa-response');
+  res.style.display='block';
+  const msgs={
+    filed:'<div class="wa-bubble sent">✓ Filed<div class="wa-time">Just now</div></div><div class="wa-bubble" style="margin-top:6px">Great! GSTR-3B marked as filed. I\'ve notified your CA and updated your calendar. Your compliance score has been updated. 🎉<div class="wa-time">Just now</div></div>',
+    remind:'<div class="wa-bubble sent">📣 Remind CA<div class="wa-time">Just now</div></div><div class="wa-bubble" style="margin-top:6px">Done! A separate alert has been sent to Rajesh Mehta &amp; Co. If they don\'t act within 7 days, you\'ll receive an escalation alert automatically.<div class="wa-time">Just now</div></div>',
+    penalty:'<div class="wa-bubble sent">📊 See penalty<div class="wa-time">Just now</div></div><div class="wa-bubble" style="margin-top:6px"><strong>GSTR-3B penalty if missed:</strong><br/>After due date: ₹50/day<br/>After 10 days: ₹500+<br/>After 30 days: ₹1,500+<br/>Max penalty: ₹5,000 per return<div class="wa-time">Just now</div></div>',
+  };
+  res.innerHTML=msgs[action]||'';
+}
+
+/* ── CA PORTAL ── */
+function updateStatus(sel){
+  const colors={overdue:{bg:'var(--red-bg)',color:'var(--red)',border:'rgba(239,68,68,.25)'},inprogress:{bg:'var(--amber-bg)',color:'var(--amber)',border:'rgba(245,158,11,.25)'},filed:{bg:'var(--green-bg)',color:'var(--green)',border:'rgba(34,197,94,.25)'},pending:{bg:'var(--bg3)',color:'var(--text3)',border:'var(--border)'}};
+  const v=sel.value;
+  const c=colors[v]||colors.pending;
+  sel.style.background=c.bg;sel.style.color=c.color;sel.style.border=`1px solid ${c.border}`;
+  const urgent=['overdue','pending'];
+  const count=document.querySelectorAll('.ca-status-sel');
+  let n=0;count.forEach(s=>{if(urgent.includes(s.value))n++;});
+  document.getElementById('pending-count').textContent=n+' urgent';
+}
+function markAllFiled(){
+  document.querySelectorAll('.ca-status-sel').forEach(s=>{
+    s.value='filed';updateStatus(s);
+  });
+}
+</script>
+</body>
+</html>
